@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
         focusHours: 'flexible',
         timezone: 'UTC',
         language: 'en',
-        skillsLevel: new Map(),
+        skillsLevel: {},
       },
       preferences: {
         maxStudyHoursPerDay: 6,
@@ -69,8 +69,8 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Strip password before returning
-    const { password: _, ...safeUser } = user.toObject();
+    const safeUser = { ...user };
+    delete safeUser.password;
 
     return NextResponse.json(
       { message: "User created successfully", user: safeUser },

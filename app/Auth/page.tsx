@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
   BarChart3,
@@ -43,9 +44,98 @@ const statItems = [
 ];
 
 export default function AuthPage() {
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialMode = searchParams.get("mode") === "signup" ? "signup" : "login";
+  const [mode, setMode] = useState<"login" | "signup">(initialMode);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setSuccess("");
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail || !password || (mode === "signup" && !name.trim())) {
+      setError("Please fill in all required fields.");
+      return;
+    }
+
+    if (mode === "signup") {
+      if (password.length < 6) {
+        setError("Password must be at least 6 characters.");
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        setError("Passwords do not match.");
+        return;
+      }
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      if (mode === "signup") {
+        const signupResponse = await fetch("/api/auth/signup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: name.trim(),
+            email: normalizedEmail,
+            password,
+          }),
+        });
+
+        const signupData = await signupResponse.json();
+
+        if (!signupResponse.ok) {
+          setError(signupData.message ?? "Unable to create account.");
+          return;
+        }
+
+        setSuccess("Account created. Signing you in...");
+      }
+
+      const loginResult = await signIn("credentials", {
+        email: normalizedEmail,
+        password,
+        redirect: false,
+        callbackUrl: "/dashboard",
+      });
+
+      if (loginResult?.error) {
+        setError("Invalid email or password.");
+        return;
+      }
+
+      router.push(loginResult?.url ?? "/dashboard");
+      router.refresh();
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function toggleMode() {
+    setMode((currentMode) => (currentMode === "login" ? "signup" : "login"));
+    setError("");
+    setSuccess("");
+  }
 
   return (
     <div className={`${plusJakarta.className} min-h-[100svh] bg-[#f4f0ff] text-[#1c1532]`}>
@@ -142,7 +232,7 @@ export default function AuthPage() {
                 </p>
               </div>
 
-              <form className="mt-4 space-y-2.5">
+              <form className="mt-4 space-y-2.5" onSubmit={handleSubmit}>
                 <div
                   className={`overflow-hidden transition-all duration-300 ease-out ${
                     mode === "signup"
@@ -158,6 +248,9 @@ export default function AuthPage() {
                         className="w-full text-sm text-black/80 outline-none placeholder:text-black/30"
                         placeholder="John Doe"
                         type="text"
+                        value={name}
+                        onChange={(event) => setName(event.target.value)}
+                        disabled={isSubmitting || mode === "login"}
                       />
                     </div>
                   </label>
@@ -171,6 +264,9 @@ export default function AuthPage() {
                       className="w-full text-sm text-black/80 outline-none placeholder:text-black/30"
                       placeholder="you@example.com"
                       type="email"
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                      disabled={isSubmitting}
                     />
                   </div>
                 </label>
@@ -183,12 +279,16 @@ export default function AuthPage() {
                       className="w-full text-sm text-black/80 outline-none placeholder:text-black/30"
                       placeholder={mode === "login" ? "Enter your password" : "Create a strong password"}
                       type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      disabled={isSubmitting}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword((prev) => !prev)}
                       className="text-black/40 hover:text-black/60"
                       aria-label="Toggle password visibility"
+                      disabled={isSubmitting}
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
@@ -210,12 +310,16 @@ export default function AuthPage() {
                         className="w-full text-sm text-black/80 outline-none placeholder:text-black/30"
                         placeholder="Confirm your password"
                         type={showConfirm ? "text" : "password"}
+                        value={confirmPassword}
+                        onChange={(event) => setConfirmPassword(event.target.value)}
+                        disabled={isSubmitting || mode === "login"}
                       />
                       <button
                         type="button"
                         onClick={() => setShowConfirm((prev) => !prev)}
                         className="text-black/40 hover:text-black/60"
                         aria-label="Toggle confirm password visibility"
+                        disabled={isSubmitting}
                       >
                         {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
@@ -258,11 +362,24 @@ export default function AuthPage() {
                   </div>
                 </div>
 
+                {error ? (
+                  <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
+                    {error}
+                  </p>
+                ) : null}
+
+                {success ? (
+                  <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
+                    {success}
+                  </p>
+                ) : null}
+
                 <button
-                  type="button"
+                  type="submit"
+                  disabled={isSubmitting}
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#4f7cff] via-[#6b5cff] to-[#9b34ff] px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-purple-200"
                 >
-                  {mode === "login" ? "Sign In" : "Create Account"}
+                  {isSubmitting ? "Please wait..." : mode === "login" ? "Sign In" : "Create Account"}
                   <ArrowRight className="h-4 w-4" />
                 </button>
               </form>
@@ -276,7 +393,8 @@ export default function AuthPage() {
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <button
                   type="button"
-                  onClick={() => signIn("google")}
+                  onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
+                  disabled={isSubmitting}
                   className="flex items-center justify-center gap-2 rounded-xl border border-black/10 bg-white px-3 py-2 text-xs font-semibold text-black/70"
                 >
                   <Chrome className="h-4 w-4" />
@@ -284,7 +402,8 @@ export default function AuthPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => signIn("github")}
+                  onClick={() => signIn("github", { callbackUrl: "/dashboard" })}
+                  disabled={isSubmitting}
                   className="flex items-center justify-center gap-2 rounded-xl border border-black/10 bg-white px-3 py-2 text-xs font-semibold text-black/70"
                 >
                   <Github className="h-4 w-4" />
@@ -296,7 +415,7 @@ export default function AuthPage() {
                 {mode === "login" ? "Don't have an account?" : "Already have an account?"}{" "}
                 <button
                   type="button"
-                  onClick={() => setMode(mode === "login" ? "signup" : "login")}
+                  onClick={toggleMode}
                   className="font-semibold text-[#5b46d6] hover:text-[#4b36c4]"
                 >
                   {mode === "login" ? "Sign Up" : "Sign In"}

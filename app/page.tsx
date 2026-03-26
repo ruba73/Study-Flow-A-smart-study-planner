@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ArrowRight, Play, Brain, BarChart3, Gauge, Activity } from "lucide-react";
 import Section from "./components/section";
 import FeatureCard from "./components/featureCard";
@@ -8,8 +9,8 @@ import { useRouter } from "next/navigation";
 
 export default function Home() {
   const router = useRouter();
-  function handleLoginClick() {
-    router.push("/Auth");
+  function handleAuthClick(mode: "login" | "signup") {
+    router.push(`/Auth?mode=${mode}`);
   }
   return (
     <div className="min-h-screen bg-[#f7f7fb] text-[#0f1b14]">
@@ -30,16 +31,16 @@ export default function Home() {
             <a className="hover:text-black" href="#solutions">
               Solutions
             </a>
-            <a className="hover:text-black" href="#support">
+            <Link className="transition-colors duration-200 hover:text-black" href="/support">
               Support
-            </a>
+            </Link>
           </nav>
 
           <div className="flex items-center gap-2 text-sm">
-            <button onClick={handleLoginClick} className="rounded-full border border-black/10 px-4 py-2 text-black/80 hover:text-black">
+            <button onClick={() => handleAuthClick("login")} className="rounded-full border border-black/10 px-4 py-2 text-black/80 hover:text-black">
               Log In
             </button>
-            <button onClick={handleLoginClick} className="rounded-full bg-[#7c3aed] px-4 py-2 font-semibold text-white shadow-sm">
+            <button onClick={() => handleAuthClick("signup")} className="rounded-full bg-[#7c3aed] px-4 py-2 font-semibold text-white shadow-sm">
               Sign Up
             </button>
           </div>
@@ -162,11 +163,11 @@ export default function Home() {
               Start your 7-day free trial today.
             </p>
             <div className="mt-6 flex flex-wrap justify-center gap-3">
-              <button className="rounded-full bg-[#7c3aed] px-6 py-3 text-sm font-semibold text-white">
-                Get Started Free
-              </button>
-              <button className="rounded-full border border-white/25 px-6 py-3 text-sm font-semibold text-white">
-                See Pricing
+              <button
+                onClick={() => handleAuthClick("signup")}
+                className="rounded-full bg-[#7c3aed] px-6 py-3 text-sm font-semibold text-white transition-transform duration-200 hover:-translate-y-0.5 hover:bg-[#6c30dd]"
+              >
+                Get Started
               </button>
             </div>
           </div>
@@ -191,15 +192,30 @@ export default function Home() {
 
           <FooterCol title={"Product"} links={[{label:"Features",href:"#"},{label:"Dashboard",href:"#"},{label:"News",href:"#"}]}/>
           <FooterCol title={"Company"} links={[{label:"About Us",href:"#"},{label:"Careers",href:"#"}]}/>
-          <FooterCol title={"Support"} links={[{label:"Help Center",href:"#"},{label:"Community",href:"#"},{label:"Privacy",href:"#"}]}/>
+          <FooterCol title={"Support"} links={[{label:"Help Center",href:"/support"},{label:"Community",href:"#"},{label:"Privacy",href:"#"}]}/>
         </div>
 
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-5 pb-10 text-xs text-black/50 md:flex-row">
           <span>© 2024 StudyFlow Inc. All rights reserved.</span>
           <div className="flex gap-4">
-            <span>Privacy Policy</span>
-            <span>Terms of Service</span>
-            <span>Cookie Settings</span>
+            <a href="#" className="group inline-flex items-center transition-colors duration-200 hover:text-[#2b135a]">
+              <span className="relative">
+                Privacy Policy
+                <span className="absolute -bottom-0.5 left-0 h-px w-full origin-left scale-x-0 bg-current transition-transform duration-300 ease-out group-hover:scale-x-100" />
+              </span>
+            </a>
+            <a href="#" className="group inline-flex items-center transition-colors duration-200 hover:text-[#2b135a]">
+              <span className="relative">
+                Terms of Service
+                <span className="absolute -bottom-0.5 left-0 h-px w-full origin-left scale-x-0 bg-current transition-transform duration-300 ease-out group-hover:scale-x-100" />
+              </span>
+            </a>
+            <a href="#" className="group inline-flex items-center transition-colors duration-200 hover:text-[#2b135a]">
+              <span className="relative">
+                Cookie Settings
+                <span className="absolute -bottom-0.5 left-0 h-px w-full origin-left scale-x-0 bg-current transition-transform duration-300 ease-out group-hover:scale-x-100" />
+              </span>
+            </a>
           </div>
         </div>
       </footer>
