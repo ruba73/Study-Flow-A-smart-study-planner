@@ -1,95 +1,185 @@
-'use client';
+"use client";
 
-import { useMemo, useRef, useState } from 'react';
-import {
-  GraduationCap,
-  BookOpen,
-  Clock,
-  Flame,
-  Award,
-  Shield,
-  Camera,
-  CalendarDays,
-} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Award, BookOpen, CalendarDays, Camera, Clock, Flame, Globe, Shield } from "lucide-react";
+
+type SchoolLevel = "high-school" | "undergraduate" | "graduate" | "professional";
+type FocusHours = "morning" | "afternoon" | "evening" | "night" | "flexible";
+
+interface ProfileResponse {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    avatar: string | null;
+    createdAt: string;
+    profile: {
+      schoolLevel?: SchoolLevel;
+      timezone?: string;
+      language?: string;
+      focusHours?: FocusHours;
+    };
+    stats: {
+      completedGoals: number;
+      totalStudyTime: number;
+      currentStreak: number;
+      totalTasks: number;
+      completedTasks: number;
+    };
+  };
+}
+
+function getInitials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "U";
+  const first = parts[0]?.[0] ?? "U";
+  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : "";
+  return `${first}${last}`.toUpperCase();
+}
+
+function formatSchoolLevel(value?: SchoolLevel) {
+  switch (value) {
+    case "high-school":
+      return "High School";
+    case "undergraduate":
+      return "Undergraduate";
+    case "graduate":
+      return "Graduate";
+    case "professional":
+      return "Professional";
+    default:
+      return "Undergraduate";
+  }
+}
 
 export default function ProfilePage() {
-  const [bio, setBio] = useState(
-    'Passionate computer science student focusing on algorithms and data structures.'
-  );
-
-  const [form, setForm] = useState({
-    fullName: 'Nour Rifaieh',
-    email: 'nourrifaieh60@gmail.com',
-    educationLevel: 'University',
-    major: 'Computer Science',
-    currentPassword: '',
-    newPassword: '',
-    confirmNewPassword: '',
-  });
-
-  // ✅ Avatar upload state
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ✅ Initials fallback (JD)
-  const initials = useMemo(() => {
-    const parts = form.fullName.trim().split(/\s+/).filter(Boolean);
-    if (parts.length === 0) return 'U';
-    const first = parts[0]?.[0] ?? 'U';
-    const last = (parts.length > 1 ? parts[parts.length - 1]?.[0] : '') ?? '';
-    return (first + last).toUpperCase();
-  }, [form.fullName]);
+  const [form, setForm] = useState({
+    fullName: "",
+    email: "",
+    schoolLevel: "undergraduate" as SchoolLevel,
+    timezone: "UTC",
+    language: "en",
+    focusHours: "flexible" as FocusHours,
+    currentPassword: "",
+    newPassword: "",
+    confirmNewPassword: "",
+  });
 
-  function setField<K extends keyof typeof form>(key: K, value: string) {
-    setForm((p) => ({ ...p, [key]: value }));
+  const [stats, setStats] = useState({
+    completedGoals: 0,
+    totalStudyTime: 0,
+    currentStreak: 0,
+    totalTasks: 0,
+    completedTasks: 0,
+  });
+  const [joinedAt, setJoinedAt] = useState("");
+
+  const initials = useMemo(() => getInitials(form.fullName), [form.fullName]);
+
+  function setField<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
   }
 
-  function saveProfile() {
-    // Connect to your API / server action here
-    console.log('Save profile', { bio, form, avatarUrl });
-    alert('Profile saved successfully!');
+  async function loadProfile() {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/profile", { cache: "no-store" });
+      if (!response.ok) return;
+      const data = (await response.json()) as ProfileResponse;
+      setForm((current) => ({
+        ...current,
+        fullName: data.user.name,
+        email: data.user.email,
+        schoolLevel: data.user.profile.schoolLevel ?? "undergraduate",
+        timezone: data.user.profile.timezone ?? "UTC",
+        language: data.user.profile.language ?? "en",
+        focusHours: data.user.profile.focusHours ?? "flexible",
+      }));
+      setAvatarPreview(data.user.avatar);
+      setStats(data.user.stats);
+      setJoinedAt(
+        new Date(data.user.createdAt).toLocaleDateString("en-US", {
+          month: "short",
+          year: "numeric",
+        }),
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
-  // ✅ Better password validation without changing UI
-  function changePassword() {
-    const current = form.currentPassword.trim();
-    const next = form.newPassword.trim();
-    const confirm = form.confirmNewPassword.trim();
+  useEffect(() => {
+    loadProfile();
+  }, []);
 
-    if (!current || !next || !confirm) {
-      alert('Please fill all password fields.');
-      return;
+  async function saveProfile() {
+    setSaving(true);
+    try {
+      const response = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.fullName,
+          email: form.email,
+          avatar: avatarPreview,
+          profile: {
+            schoolLevel: form.schoolLevel,
+            timezone: form.timezone,
+            language: form.language,
+            focusHours: form.focusHours,
+          },
+        }),
+      });
+
+      const data = (await response.json()) as { message?: string };
+      if (!response.ok) {
+        alert(data.message || "Could not save profile");
+        return;
+      }
+
+      alert("Profile saved successfully.");
+    } finally {
+      setSaving(false);
     }
-
-    if (next.length < 8) {
-      alert('New password must be at least 8 characters.');
-      return;
-    }
-
-    if (next !== confirm) {
-      alert('New password and confirmation do not match.');
-      return;
-    }
-
-    if (next === current) {
-      alert('New password must be different from current password.');
-      return;
-    }
-
-    // Connect to your API / server action here
-    console.log('Change password');
-    alert('Password changed successfully!');
-
-    // ✅ Clear password fields after success
-    setForm((p) => ({
-      ...p,
-      currentPassword: '',
-      newPassword: '',
-      confirmNewPassword: '',
-    }));
   }
 
-  // ✅ Avatar upload handler + preview
+  async function changePassword() {
+    setPasswordSaving(true);
+    try {
+      const response = await fetch("/api/profile/password", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentPassword: form.currentPassword,
+          newPassword: form.newPassword,
+          confirmNewPassword: form.confirmNewPassword,
+        }),
+      });
+
+      const data = (await response.json()) as { message?: string };
+      if (!response.ok) {
+        alert(data.message || "Could not change password");
+        return;
+      }
+
+      setForm((current) => ({
+        ...current,
+        currentPassword: "",
+        newPassword: "",
+        confirmNewPassword: "",
+      }));
+      alert("Password changed successfully.");
+    } finally {
+      setPasswordSaving(false);
+    }
+  }
+
   function onPickAvatar() {
     fileInputRef.current?.click();
   }
@@ -97,77 +187,57 @@ export default function ProfilePage() {
   function onAvatarSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    // Basic file validation
-    if (!file.type.startsWith('image/')) {
-      alert('Please select an image file.');
+    if (!file.type.startsWith("image/")) {
+      alert("Please select an image file.");
+      return;
+    }
+    if (file.size > 1024 * 1024) {
+      alert("Please use an image under 1MB.");
       return;
     }
 
-    const maxMB = 4;
-    if (file.size > maxMB * 1024 * 1024) {
-      alert(`Image size must be less than ${maxMB}MB.`);
-      return;
-    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setAvatarPreview(typeof reader.result === "string" ? reader.result : null);
+    };
+    reader.readAsDataURL(file);
+  }
 
-    const url = URL.createObjectURL(file);
-    setAvatarUrl((prev) => {
-      // clean old preview URL to avoid memory leaks
-      if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev);
-      return url;
-    });
+  if (loading) {
+    return <div className="min-h-full bg-gray-50 p-4 text-sm text-gray-500">Loading profile...</div>;
   }
 
   return (
-    // ✅ Match Settings page wrapper + padding EXACTLY
     <div className="min-h-full bg-gray-50">
       <div className="p-4 sm:p-4 lg:p-4">
-        <div className="max-w-5xl mx-auto">
-          {/* Page Header */}
-          <div className="flex items-start gap-3 mb-6 hidden md:flex">
-            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center flex-shrink-0">
+        <div className="mx-auto max-w-5xl">
+          <div className="hidden items-start gap-3 md:mb-6 md:flex">
+            <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 text-white">
               <span className="text-2xl font-bold">👤</span>
             </div>
             <div>
-              <h2 className="text-xl font-bold text-gray-900 mb-1">
-                My Profile
-              </h2>
-              <p className="text-gray-600">
-                Manage your personal information and view your progress
-              </p>
+              <h2 className="mb-1 text-xl font-bold text-gray-900">My Profile</h2>
+              <p className="text-gray-600">Manage your personal information and account preferences</p>
             </div>
           </div>
 
-<div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-  <div className="relative h-28 bg-gradient-to-r from-blue-500 via-purple-600 to-pink-500">
-    {/* ✅ Responsive name/email positioning */}
-    <div
-      className="
-        absolute bottom-8
-        left-4 sm:left-6 md:left-16 lg:left-[12%]
-        text-left
-        w-[calc(100%-2rem)] sm:w-[calc(100%-3rem)] md:w-[60%] lg:w-[30%]
-      "
-    >
-      <div className="text-xl sm:text-2xl font-bold text-white leading-tight drop-shadow truncate">
-        {form.fullName}
-      </div>
-      <div className="text-xs sm:text-sm text-white/90 drop-shadow truncate">
-        {form.email}
-      </div>
-    </div>
-  </div>
+          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+            <div className="relative h-28 bg-gradient-to-r from-blue-500 via-purple-600 to-pink-500">
+              <div className="absolute bottom-8 left-4 w-[calc(100%-2rem)] text-left sm:left-6 sm:w-[calc(100%-3rem)] md:left-16 md:w-[60%] lg:left-[12%] lg:w-[30%]">
+                <div className="truncate text-xl font-bold leading-tight text-white drop-shadow sm:text-2xl">
+                  {form.fullName}
+                </div>
+                <div className="truncate text-xs text-white/90 drop-shadow sm:text-sm">{form.email}</div>
+              </div>
+            </div>
 
-            <div className="px-6 -mt-10">
+            <div className="-mt-10 px-6">
               <div className="flex items-end gap-4">
                 <div className="relative">
-                  <div className="w-20 h-20 rounded-full ring-4 ring-white overflow-hidden bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center text-2xl font-bold">
-                    {avatarUrl ? (
-                      <img
-                        src={avatarUrl}
-                        alt="Avatar"
-                        className="w-full h-full object-cover"
-                      />
+                  <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-2xl font-bold text-white ring-4 ring-white">
+                    {avatarPreview ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={avatarPreview} alt="Avatar" className="h-full w-full object-cover" />
                     ) : (
                       initials
                     )}
@@ -176,10 +246,10 @@ export default function ProfilePage() {
                   <button
                     type="button"
                     onClick={onPickAvatar}
-                    className="absolute -right-1 -bottom-1 w-9 h-9 rounded-full bg-white border border-gray-200 shadow-sm flex items-center justify-center hover:bg-gray-50"
+                    className="absolute -bottom-1 -right-1 flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white shadow-sm hover:bg-gray-50"
                     aria-label="Change avatar"
                   >
-                    <Camera className="w-4 h-4 text-gray-600" />
+                    <Camera className="h-4 w-4 text-gray-600" />
                   </button>
 
                   <input
@@ -191,117 +261,106 @@ export default function ProfilePage() {
                   />
                 </div>
 
-                <div className="pb-1/2 ">
-                  <div className="flex flex-wrap gap-2 mt-3">
-                    <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm bg-blue-50 text-blue-700 border border-blue-100">
-                      <GraduationCap className="w-4 h-4" />
-                      {form.educationLevel}
+                <div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-sm text-blue-700">
+                      <BookOpen className="h-4 w-4" />
+                      {formatSchoolLevel(form.schoolLevel)}
                     </span>
-                    <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm bg-purple-50 text-purple-700 border border-purple-100">
-                      <BookOpen className="w-4 h-4" />
-                      {form.major}
+                    <span className="inline-flex items-center gap-2 rounded-full border border-purple-100 bg-purple-50 px-3 py-1 text-sm text-purple-700">
+                      <Globe className="h-4 w-4" />
+                      {form.timezone}
                     </span>
-                    <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm bg-green-50 text-green-700 border border-green-100">
-                      <CalendarDays className="w-4 h-4" />
-                      Joined Sep 2025
+                    <span className="inline-flex items-center gap-2 rounded-full border border-green-100 bg-green-50 px-3 py-1 text-sm text-green-700">
+                      <CalendarDays className="h-4 w-4" />
+                      Joined {joinedAt}
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Stats */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
-                <StatCard
-                  icon={<BookOpen className="w-5 h-5 text-blue-600" />}
-                  title="Courses Completed"
-                  value="12"
-                />
-                <StatCard
-                  icon={<Clock className="w-5 h-5 text-purple-600" />}
-                  title="Study Hours"
-                  value="156h"
-                />
-                <StatCard
-                  icon={<Flame className="w-5 h-5 text-green-600" />}
-                  title="Current Streak"
-                  value="7 days"
-                />
-                <StatCard
-                  icon={<Award className="w-5 h-5 text-orange-600" />}
-                  title="Achievements"
-                  value="8"
-                />
+              <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <StatCard icon={<Award className="h-5 w-5 text-blue-600" />} title="Goals Completed" value={String(stats.completedGoals)} />
+                <StatCard icon={<Clock className="h-5 w-5 text-purple-600" />} title="Study Hours" value={`${Math.round(stats.totalStudyTime / 60)}h`} />
+                <StatCard icon={<Flame className="h-5 w-5 text-green-600" />} title="Current Streak" value={`${stats.currentStreak} days`} />
+                <StatCard icon={<BookOpen className="h-5 w-5 text-orange-600" />} title="Tasks Completed" value={`${stats.completedTasks}/${stats.totalTasks}`} />
               </div>
 
-              {/* Bio */}
-              <div className="mt-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Bio
-                </label>
-                <textarea
-                  value={bio}
-                  onChange={(e) => setBio(e.target.value)}
-                  className="w-full min-h-[90px] resize-none border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* Profile Form */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+              <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
                 <Field label="Full Name">
                   <input
                     value={form.fullName}
-                    onChange={(e) => setField('fullName', e.target.value)}
-                    className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    onChange={(e) => setField("fullName", e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </Field>
 
                 <Field label="Email Address">
                   <input
                     value={form.email}
-                    onChange={(e) => setField('email', e.target.value)}
-                    className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    onChange={(e) => setField("email", e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </Field>
 
-                <Field label="Education Level">
+                <Field label="School Level">
                   <select
-                    value={form.educationLevel}
-                    onChange={(e) => setField('educationLevel', e.target.value)}
-                    className="w-full border border-gray-200 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={form.schoolLevel}
+                    onChange={(e) => setField("schoolLevel", e.target.value as SchoolLevel)}
+                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option>High School</option>
-                    <option>University</option>
-                    <option>Graduate</option>
-                    <option>Self-taught</option>
+                    <option value="high-school">High School</option>
+                    <option value="undergraduate">Undergraduate</option>
+                    <option value="graduate">Graduate</option>
+                    <option value="professional">Professional</option>
                   </select>
                 </Field>
 
-                <Field label="Major / Field of Study">
+                <Field label="Preferred Focus Hours">
+                  <select
+                    value={form.focusHours}
+                    onChange={(e) => setField("focusHours", e.target.value as FocusHours)}
+                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="morning">Morning</option>
+                    <option value="afternoon">Afternoon</option>
+                    <option value="evening">Evening</option>
+                    <option value="night">Night</option>
+                    <option value="flexible">Flexible</option>
+                  </select>
+                </Field>
+
+                <Field label="Timezone">
                   <input
-                    value={form.major}
-                    onChange={(e) => setField('major', e.target.value)}
-                    className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={form.timezone}
+                    onChange={(e) => setField("timezone", e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </Field>
+
+                <Field label="Language">
+                  <input
+                    value={form.language}
+                    onChange={(e) => setField("language", e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </Field>
               </div>
 
-              {/* Security */}
-              <div className="mt-8 border border-gray-200 rounded-2xl p-6">
-                <div className="flex items-center gap-2 text-gray-900 font-semibold">
-                  <Shield className="w-5 h-5 text-red-500" />
+              <div className="mt-8 rounded-2xl border border-gray-200 p-6">
+                <div className="flex items-center gap-2 font-semibold text-gray-900">
+                  <Shield className="h-5 w-5 text-red-500" />
                   Security
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+                <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
                   <Field label="Current Password">
                     <input
                       type="password"
                       placeholder="Enter current password"
                       value={form.currentPassword}
-                      onChange={(e) =>
-                        setField('currentPassword', e.target.value)
-                      }
-                      className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      onChange={(e) => setField("currentPassword", e.target.value)}
+                      className="w-full rounded-xl border border-gray-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </Field>
 
@@ -312,8 +371,8 @@ export default function ProfilePage() {
                       type="password"
                       placeholder="Enter new password"
                       value={form.newPassword}
-                      onChange={(e) => setField('newPassword', e.target.value)}
-                      className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      onChange={(e) => setField("newPassword", e.target.value)}
+                      className="w-full rounded-xl border border-gray-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </Field>
 
@@ -322,10 +381,8 @@ export default function ProfilePage() {
                       type="password"
                       placeholder="Confirm new password"
                       value={form.confirmNewPassword}
-                      onChange={(e) =>
-                        setField('confirmNewPassword', e.target.value)
-                      }
-                      className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      onChange={(e) => setField("confirmNewPassword", e.target.value)}
+                      className="w-full rounded-xl border border-gray-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </Field>
 
@@ -333,22 +390,23 @@ export default function ProfilePage() {
                     <button
                       type="button"
                       onClick={changePassword}
-                      className="px-5 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium"
+                      disabled={passwordSaving}
+                      className="rounded-xl bg-gray-100 px-5 py-2.5 font-medium text-gray-800 hover:bg-gray-200 disabled:opacity-60"
                     >
-                      Change Password
+                      {passwordSaving ? "Changing..." : "Change Password"}
                     </button>
                   </div>
                 </div>
               </div>
 
-              {/* Save */}
               <div className="mt-8 pb-6">
                 <button
                   type="button"
                   onClick={saveProfile}
-                  className="w-full py-4 rounded-2xl text-white font-semibold bg-gradient-to-r from-blue-500 via-purple-600 to-pink-500 hover:opacity-95 active:opacity-90"
+                  disabled={saving}
+                  className="w-full rounded-2xl bg-gradient-to-r from-blue-500 via-purple-600 to-pink-500 py-4 font-semibold text-white hover:opacity-95 active:opacity-90 disabled:opacity-60"
                 >
-                  Save Profile Changes
+                  {saving ? "Saving..." : "Save Profile Changes"}
                 </button>
               </div>
             </div>
@@ -368,7 +426,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <div className="text-sm font-medium text-gray-700 mb-2">{label}</div>
+      <div className="mb-2 text-sm font-medium text-gray-700">{label}</div>
       {children}
     </label>
   );
@@ -384,10 +442,8 @@ function StatCard({
   value: string;
 }) {
   return (
-    <div className="border border-gray-200 rounded-2xl p-4 bg-white">
-      <div className="w-10 h-10 rounded-xl bg-gray-50 flex items-center justify-center">
-        {icon}
-      </div>
+    <div className="rounded-2xl border border-gray-200 bg-white p-4">
+      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-50">{icon}</div>
       <div className="mt-3 text-2xl font-bold text-gray-900">{value}</div>
       <div className="text-sm text-gray-500">{title}</div>
     </div>

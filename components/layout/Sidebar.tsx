@@ -9,7 +9,6 @@ import {
   SquareCheckBig,
   LayoutDashboard,
   Settings,
-  Sparkles,
   X,
 } from 'lucide-react';
 import { usePathname } from 'next/navigation';
@@ -17,8 +16,7 @@ import Link from 'next/link';
 
 const navItems = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'AI Setup', href: '/ai-setup', icon: Sparkles },
-  { name: 'My Courses', href: '/courses', icon: BookOpen },
+  { name: 'Subjects', href: '/subjects', icon: BookOpen },
   { name: 'Tasks / To-Do', href: '/tasks', icon: SquareCheckBig },
   { name: 'Study Plan', href: '/study-plan', icon: Brain },
   { name: 'Calendar', href: '/calendar', icon: Calendar },

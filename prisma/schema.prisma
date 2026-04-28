@@ -134,6 +134,30 @@ model Task {
   @@index([type])
 }
 
+model Material {
+  id                String   @id @default(cuid())
+  userId            String
+  goalId            String
+  title             String
+  fileName          String?
+  mimeType          String?
+  sizeBytes         Int?
+  source            String
+  url               String?
+  openaiFileId      String?
+  vectorStoreId     String?
+  vectorStoreFileId String?
+  status            String   @default("ready")
+  metadata          Json
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([userId, goalId])
+  @@index([openaiFileId])
+  @@index([vectorStoreId])
+  @@index([source])
+}
+
 model StudySession {
   id               String   @id @default(cuid())
   userId           String
