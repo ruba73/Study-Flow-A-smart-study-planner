@@ -1,10 +1,33 @@
+"use client";
+
 import { Award } from "lucide-react";
+import { useEffect, useState } from "react";
 
 export function WelcomeCard() {
-  // Hardcoded data
-  const userName = "Nour";
-  const currentStreak = 7;
-  const tasksRemaining = 3;
+  const [userName, setUserName] = useState("User");
+  const [currentStreak, setCurrentStreak] = useState(0);
+  const [tasksRemaining, setTasksRemaining] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchUserData() {
+      try {
+        const response = await fetch('/api/user/dashboard');
+        if (response.ok) {
+          const data = await response.json();
+          setUserName(data.user.name);
+          setCurrentStreak(data.stats.currentStreak);
+          setTasksRemaining(data.todayTasksCount);
+        }
+      } catch (error) {
+        console.error('Failed to fetch user data:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchUserData();
+  }, []);
   
   // Get current date
   const today = new Date();
@@ -14,6 +37,14 @@ export function WelcomeCard() {
     day: 'numeric',
     year: 'numeric'
   });
+
+  if (loading) {
+    return (
+      <div className="bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl p-6 text-white animate-pulse">
+        <div className="h-20 bg-white/10 rounded"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl p-6 text-white">
