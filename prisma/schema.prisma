@@ -21,6 +21,7 @@ model User {
   onboardingStep      Int      @default(0)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
+  courses             Course[]
 }
 
 model Subject {
@@ -76,55 +77,55 @@ model Goal {
 }
 
 model StudyPlan {
-  id                  String   @id @default(cuid())
-  goalId              String   @unique
+  id                  String    @id @default(cuid())
+  goalId              String    @unique
   userId              String
-  planVersion         Int      @default(1)
+  planVersion         Int       @default(1)
   config              Json
   sessions            Json
   milestones          Json
-  aiGenerated         Boolean  @default(false)
+  aiGenerated         Boolean   @default(false)
   aiModel             String?
-  generationPrompt    String?  @db.Text
+  generationPrompt    String?   @db.Text
   lastRegenerated     DateTime?
-  regenerationReason  String?  @db.Text
+  regenerationReason  String?   @db.Text
   preservedSessions   Json
-  totalPlannedHours   Float    @default(0)
-  totalCompletedHours Float    @default(0)
-  completionRate      Float    @default(0)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  totalPlannedHours   Float     @default(0)
+  totalCompletedHours Float     @default(0)
+  completionRate      Float     @default(0)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@index([userId])
   @@index([planVersion])
 }
 
 model Task {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   userId            String
   goalId            String
   sessionId         String?
   topicId           String?
   title             String
-  description       String?  @db.Text
+  description       String?   @db.Text
   type              String
   estimatedDuration Int
   difficulty        Int
-  status            String   @default("not-started")
+  status            String    @default("not-started")
   dueDate           DateTime?
   scheduledDate     DateTime?
   scheduledTime     String?
-  completed         Boolean  @default(false)
+  completed         Boolean   @default(false)
   completedAt       DateTime?
-  timeSpent         Int      @default(0)
-  isReview          Boolean  @default(false)
+  timeSpent         Int       @default(0)
+  isReview          Boolean   @default(false)
   reviewSchedule    Json?
   resources         Json
   dependsOn         Json
   linkedTasks       Json
-  isManual          Boolean  @default(false)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  isManual          Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   @@index([userId, status])
   @@index([goalId, status])
@@ -135,7 +136,7 @@ model Task {
 }
 
 model StudySession {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   userId           String
   goalId           String
   sessionId        String?
@@ -145,16 +146,16 @@ model StudySession {
   plannedDuration  Int
   actualStartTime  DateTime?
   actualEndTime    DateTime?
-  actualDuration   Int      @default(0)
-  status           String   @default("scheduled")
+  actualDuration   Int       @default(0)
+  status           String    @default("scheduled")
   tasks            Json
-  notes            String?  @db.Text
-  focusScore       Int      @default(0)
-  pauseCount       Int      @default(0)
-  totalPauseTime   Int      @default(0)
+  notes            String?   @db.Text
+  focusScore       Int       @default(0)
+  pauseCount       Int       @default(0)
+  totalPauseTime   Int       @default(0)
   breaks           Json
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@index([userId, status])
   @@index([goalId])
@@ -223,19 +224,19 @@ model ActivityLog {
 }
 
 model Notification {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   userId            String
   type              String
   title             String
-  message           String   @db.Text
+  message           String    @db.Text
   actionUrl         String?
   relatedEntityId   String?
   relatedEntityType String?
-  isRead            Boolean  @default(false)
+  isRead            Boolean   @default(false)
   readAt            DateTime?
   scheduledFor      DateTime?
-  sent              Boolean  @default(false)
-  createdAt         DateTime @default(now())
+  sent              Boolean   @default(false)
+  createdAt         DateTime  @default(now())
 
   @@index([userId, isRead, createdAt])
   @@index([scheduledFor, sent])
@@ -261,28 +262,45 @@ model FixedEvent {
 }
 
 model Flashcard {
-  id                  String   @id @default(cuid())
+  id                  String    @id @default(cuid())
   userId              String
   goalId              String
   topicId             String?
-  front               String   @db.Text
-  back                String   @db.Text
-  difficulty          String   @default("medium")
+  front               String    @db.Text
+  back                String    @db.Text
+  difficulty          String    @default("medium")
   tags                Json
-  easeFactor          Float    @default(2.5)
-  interval            Int      @default(1)
-  repetitions         Int      @default(0)
+  easeFactor          Float     @default(2.5)
+  interval            Int       @default(1)
+  repetitions         Int       @default(0)
   lastReviewed        DateTime?
   nextReview          DateTime
-  reviewCount         Int      @default(0)
-  correctCount        Int      @default(0)
-  incorrectCount      Int      @default(0)
+  reviewCount         Int       @default(0)
+  correctCount        Int       @default(0)
+  incorrectCount      Int       @default(0)
   averageResponseTime Float?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@index([userId, goalId])
   @@index([nextReview])
   @@index([userId, nextReview])
   @@index([difficulty])
+}
+
+model Course {
+  id           String @id @default(cuid())
+  name         String
+  color        String
+  difficulty   String
+  progress     Int
+  deadline     String
+  hoursPerWeek Int
+
+  // ❌ was String[]
+  // ✅ FIX:
+  goals Json
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 }
