@@ -1,3 +1,5 @@
+"use client";
+
 import { Award } from "lucide-react";
 import type { DashboardData } from "@/lib/dashboard";
 
@@ -13,6 +15,14 @@ export function WelcomeCard({ welcome }: WelcomeCardProps) {
     day: "numeric",
     year: "numeric",
   });
+
+  if (loading) {
+    return (
+      <div className="bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl p-6 text-white animate-pulse">
+        <div className="h-20 bg-white/10 rounded"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-2xl bg-gradient-to-r from-blue-500 to-purple-600 p-6 text-white">
