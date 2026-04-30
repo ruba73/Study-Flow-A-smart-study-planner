@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSession, signOut } from "next-auth/react";
 import {
   Bell,
   Search,
@@ -135,6 +136,21 @@ export function Header({
   title?: string;
 }) {
   const router = useRouter();
+
+  // ── useSession: reads the active NextAuth session from the browser cookie ──
+  // `data` is the session object (null when logged out, undefined while loading)
+  // `status` is 'loading' | 'authenticated' | 'unauthenticated'
+  const { data: session, status } = useSession();
+
+  // Derive display values from the session — fall back gracefully while loading
+  const userName  = session?.user?.name  ?? 'User';
+  const userEmail = session?.user?.email ?? '';
+  const initials  = userName
+    .split(' ')
+    .map((n) => n[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
 
   // Search
   const [query,       setQuery]       = useState('');
@@ -351,7 +367,6 @@ export function Header({
             </button>
 
             {notifOpen && (
-              // <div className="absolute right-0 mt-3 w-[360px] max-w-[90vw] bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden z-50">
               <div
                 className="
                   fixed sm:absolute
@@ -376,7 +391,6 @@ export function Header({
                     </button>
                   </div>
                 </div>
-                {/* <div className="max-h-[420px] overflow-auto"> */}
                 <div className="max-h-[70vh] sm:max-h-[420px] overflow-auto">
                   {notifications.map((n) => {
                     const { Icon, bg, fg } = notifIcon(n.type);
@@ -414,7 +428,10 @@ export function Header({
               aria-label="User menu"
               aria-expanded={menuOpen}
             >
-              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center font-semibold text-sm">NR</div>
+              {/* Avatar circle — shows initials from session */}
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center font-semibold text-sm">
+                {status === 'loading' ? '…' : initials}
+              </div>
               <ChevronDown className="hidden sm:block w-4 h-4 text-gray-500" />
             </button>
 
@@ -422,10 +439,14 @@ export function Header({
               <div className="absolute right-0 mt-3 w-[280px] max-w-[90vw] bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden z-50">
                 <div className="p-4 border-b border-gray-100">
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center font-semibold">NR</div>
+                    {/* Larger avatar in dropdown */}
+                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center font-semibold">
+                      {initials}
+                    </div>
                     <div className="min-w-0">
-                      <div className="font-semibold text-gray-900">Nour Rifaieh</div>
-                      <div className="text-sm text-gray-500 truncate">nourrifaieh60@gmail.com</div>
+                      {/* Name and email pulled from session */}
+                      <div className="font-semibold text-gray-900">{userName}</div>
+                      <div className="text-sm text-gray-500 truncate">{userEmail}</div>
                     </div>
                   </div>
                   <div className="mt-3">
@@ -440,7 +461,10 @@ export function Header({
                     <Settings className="w-5 h-5 text-gray-500" /><span className="font-medium">Settings</span>
                   </Link>
                   <div className="my-2 border-t border-gray-100" />
-                  <button onClick={() => setMenuOpen(false)} className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-red-50 text-red-600">
+                  <button
+                    onClick={() => signOut({ callbackUrl: '/login' })}
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-red-50 text-red-600"
+                  >
                     <LogOut className="w-5 h-5" /><span className="font-medium">Logout</span>
                   </button>
                 </div>
