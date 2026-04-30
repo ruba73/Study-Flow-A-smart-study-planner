@@ -20,6 +20,14 @@ function formatMinutesAsHours(minutes: number) {
   return `${String(hours).padStart(2, "0")}:${String(remainingMinutes).padStart(2, "0")}`;
 }
 
+function formatLocalDate(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function formatLocalTime(date: Date) {
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
 export async function GET() {
   const userId = await getSessionUserId();
   if (!userId) {
@@ -40,6 +48,7 @@ export async function GET() {
         dueDate: true,
         scheduledDate: true,
         scheduledTime: true,
+        sessionId: true,
       },
     }),
     prisma.studySession.findMany({
@@ -63,15 +72,15 @@ export async function GET() {
   ]);
 
   const events = [
-    ...tasks.map((task) => {
+    ...tasks.filter((task) => !task.sessionId).map((task) => {
       const date = (task.scheduledDate ?? task.dueDate)!;
       const type: CalendarEventType =
         task.type === "quiz" ? "exam" : task.dueDate && !task.scheduledDate ? "deadline" : "task";
       return {
         id: `task-${task.id}`,
         title: task.title,
-        date: date.toISOString().split("T")[0],
-        time: task.scheduledTime || date.toISOString().slice(11, 16) || "09:00",
+        date: formatLocalDate(date),
+        time: task.scheduledTime || formatLocalTime(date) || "09:00",
         type,
         subject: task.type,
         color: colorForType(type, task.difficulty),
@@ -80,8 +89,8 @@ export async function GET() {
     ...sessions.map((session) => ({
       id: `session-${session.id}`,
       title: session.title,
-      date: session.plannedStartTime.toISOString().split("T")[0],
-      time: session.plannedStartTime.toISOString().slice(11, 16),
+      date: formatLocalDate(session.plannedStartTime),
+      time: formatLocalTime(session.plannedStartTime),
       duration: formatMinutesAsHours(session.plannedDuration),
       type: "session" as const,
       subject: session.type,
@@ -90,7 +99,7 @@ export async function GET() {
     ...goals.map((goal) => ({
       id: `goal-${goal.id}`,
       title: goal.title,
-      date: goal.targetDate.toISOString().split("T")[0],
+      date: formatLocalDate(goal.targetDate),
       time: "23:59",
       type: "deadline" as const,
       subject: "Goal",

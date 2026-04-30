@@ -120,6 +120,7 @@ export async function GET(request: NextRequest) {
             : material.source === "upload"
               ? "not-extracted"
               : null,
+        extractionError: typeof metadata.extractionError === "string" ? metadata.extractionError : null,
         extractionTruncated: Boolean(metadata.extractionTruncated),
       };
     }),
@@ -194,5 +195,8 @@ export async function POST(request: NextRequest) {
     materials.push(material);
   }
 
-  return NextResponse.json({ materials }, { status: 201 });
+  return NextResponse.json({
+    materials,
+    failedFiles: materials.filter((material) => material.status === "needs-review").map((material) => material.fileName),
+  }, { status: 201 });
 }

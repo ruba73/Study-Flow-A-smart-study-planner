@@ -1,7 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Sparkles, Calendar, RotateCcw, Target, Clock, Upload, FileText, ExternalLink, Wand2, X, Send, Bot, UserRound } from 'lucide-react';
+import { Sparkles, Clock, Upload, FileText, ExternalLink, X, Send, Bot, UserRound, Settings, ChevronDown, MessageSquare } from 'lucide-react';
 
 interface GoalItem {
   id: string;
@@ -14,11 +15,19 @@ interface GoalItem {
 
 interface SessionItem {
   id: string;
+  goalId: string;
   title: string;
   type: string;
   plannedStartTime: string;
   plannedDuration: number;
   status: string;
+  task: {
+    title: string;
+    description: string | null;
+    studyFocus: string[];
+    materialReference: string;
+    aiQuestion: string;
+  } | null;
 }
 
 interface MaterialItem {
@@ -31,6 +40,7 @@ interface MaterialItem {
   url: string | null;
   status: string;
   extractionStatus: string | null;
+  extractionError: string | null;
   extractionTruncated: boolean;
   createdAt: string;
 }
@@ -92,6 +102,21 @@ function formatExtractionStatus(status: string | null) {
   return `text ${status}`;
 }
 
+function hasPlanFixChanges(suggestion: unknown): suggestion is PlanFixSuggestion {
+  if (!suggestion || typeof suggestion !== 'object') return false;
+  const changes = (suggestion as { changes?: unknown }).changes;
+  if (!changes || typeof changes !== 'object') return false;
+  const values = changes as Record<string, unknown>;
+
+  return Boolean(
+    typeof values.studyHoursPerDay === 'number' &&
+      typeof values.studyDaysPerWeek === 'number' &&
+      typeof values.startTime === 'string' &&
+      typeof values.endTime === 'string' &&
+      typeof values.breakDuration === 'number',
+  );
+}
+
 export default function StudyPlanPage() {
   const [studyHoursPerDay, setStudyHoursPerDay] = useState('6');
   const [studyDaysPerWeek, setStudyDaysPerWeek] = useState('6');
@@ -106,15 +131,17 @@ export default function StudyPlanPage() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [suggesting, setSuggesting] = useState(false);
-  const [aiGenerating, setAiGenerating] = useState(false);
   const [selectedChatMaterialId, setSelectedChatMaterialId] = useState('');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatQuestion, setChatQuestion] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [planIssue, setPlanIssue] = useState<PlanIssue | null>(null);
   const [aiTaskNotice, setAiTaskNotice] = useState<AiTaskNotice | null>(null);
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const chatSectionRef = useRef<HTMLDivElement | null>(null);
+  const pendingAiQuestionRef = useRef<string | null>(null);
+  const askMaterialsAiRef = useRef<((question: string) => Promise<void>) | null>(null);
 
   function addSelectedFiles(fileList: FileList | null) {
     const nextFiles = Array.from(fileList ?? []);
@@ -177,7 +204,16 @@ export default function StudyPlanPage() {
     loadMaterials(selectedGoalId);
     setSelectedChatMaterialId('');
     setChatMessages([]);
-    setChatQuestion('');
+    if (pendingAiQuestionRef.current) {
+      const question = pendingAiQuestionRef.current;
+      pendingAiQuestionRef.current = null;
+      window.setTimeout(() => {
+        chatSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        askMaterialsAiRef.current?.(question);
+      }, 0);
+    } else {
+      setChatQuestion('');
+    }
   }, [loadMaterials, selectedGoalId]);
 
   const handleGeneratePlan = async (override?: PlanFixSuggestion['changes']) => {
@@ -190,10 +226,11 @@ export default function StudyPlanPage() {
     setGenerating(true);
     setPlanIssue(null);
     try {
-      const response = await fetch('/api/study-plan', {
+      const response = await fetch(selectedGoalId ? '/api/study-plan/ai-generate' : '/api/study-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          goalId: selectedGoalId || undefined,
           studyHoursPerDay: nextStudyHoursPerDay,
           studyDaysPerWeek: nextStudyDaysPerWeek,
           startTime: nextStartTime,
@@ -203,14 +240,24 @@ export default function StudyPlanPage() {
       });
       const data = await response.json();
       if (!response.ok) {
+        const suggestions = Array.isArray(data.suggestions)
+          ? data.suggestions.filter(hasPlanFixChanges)
+          : [];
         setSessions(data.sessions ?? []);
         setPlanIssue({
           message: data.message || 'Could not generate the full study plan with the current settings.',
-          suggestions: Array.isArray(data.suggestions) ? data.suggestions : [],
+          suggestions,
         });
         return;
       }
       setSessions(data.sessions ?? []);
+      if (data.tasksCreated) {
+        setAiTaskNotice({
+          title: 'Material-based sessions created',
+          message: `${data.tasksCreated} session${data.tasksCreated === 1 ? '' : 's'} created with study details from your materials.`,
+          tone: 'success',
+        });
+      }
       setPlanIssue(null);
     } finally {
       setGenerating(false);
@@ -218,12 +265,27 @@ export default function StudyPlanPage() {
   };
 
   const applyPlanSuggestion = (suggestion: PlanFixSuggestion) => {
+    if (!hasPlanFixChanges(suggestion)) return;
     setStudyHoursPerDay(String(suggestion.changes.studyHoursPerDay));
     setStudyDaysPerWeek(String(suggestion.changes.studyDaysPerWeek));
     setStartTime(suggestion.changes.startTime);
     setEndTime(suggestion.changes.endTime);
     setBreakDuration(String(suggestion.changes.breakDuration));
     handleGeneratePlan(suggestion.changes);
+  };
+
+  const handleAskSessionAi = (session: SessionItem) => {
+    const question = session.task?.aiQuestion || `Explain ${session.title} using my uploaded materials.`;
+    setSelectedChatMaterialId('');
+
+    if (session.goalId !== selectedGoalId) {
+      pendingAiQuestionRef.current = question;
+      setSelectedGoalId(session.goalId);
+      return;
+    }
+
+    chatSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    handleAskMaterialsAi(question);
   };
 
   const handleUploadMaterial = async () => {
@@ -266,86 +328,8 @@ export default function StudyPlanPage() {
     }
   };
 
-  const handleSuggestMaterials = async () => {
-    if (!selectedGoalId) {
-      alert('Select a subject first.');
-      return;
-    }
-
-    setSuggesting(true);
-    try {
-      const response = await fetch('/api/materials/suggest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ goalId: selectedGoalId }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        alert(data.message || 'Could not suggest materials.');
-        return;
-      }
-
-      await loadMaterials(selectedGoalId);
-      if (data.fallback && data.aiError) {
-        alert(data.aiError);
-      }
-    } finally {
-      setSuggesting(false);
-    }
-  };
-
-  const handleGenerateAiPlan = async () => {
-    if (!selectedGoalId) {
-      setAiTaskNotice({
-        title: 'Select a subject first',
-        message: 'Choose the subject you want to generate tasks for, then try again.',
-        tone: 'warning',
-      });
-      return;
-    }
-
-    setAiGenerating(true);
-    setAiTaskNotice(null);
-    try {
-      const response = await fetch('/api/study-plan/ai-generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          goalId: selectedGoalId,
-          studyHoursPerDay: parseInt(studyHoursPerDay),
-          studyDaysPerWeek: parseInt(studyDaysPerWeek),
-          startTime,
-          endTime,
-          breakDuration: parseInt(breakDuration),
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        setAiTaskNotice({
-          title: 'Task generation needs attention',
-          message: data.message || 'Could not generate AI tasks. Try checking the materials, adjusting the deadline, or generating a regular plan.',
-          tone: 'error',
-          suggestions: Array.isArray(data.suggestions) ? data.suggestions : undefined,
-        });
-        return;
-      }
-
-      setSessions(data.sessions ?? []);
-      const taskCount = data.tasksCreated ?? 0;
-      setAiTaskNotice({
-        title: data.fallback ? 'Tasks created with local fallback' : 'AI tasks created',
-        message: data.fallback
-          ? `${taskCount} task${taskCount === 1 ? '' : 's'} created. The AI provider returned an error, so StudyFlow used your uploaded materials and subject details to complete task generation. You can still ask the materials chat for fixes, explanations, or chapter-specific help.`
-          : `${taskCount} AI task${taskCount === 1 ? '' : 's'} created from your materials.`,
-        tone: data.fallback ? 'warning' : 'success',
-      });
-    } finally {
-      setAiGenerating(false);
-    }
-  };
-
-  const handleAskMaterialsAi = async () => {
-    const question = chatQuestion.trim();
+  const handleAskMaterialsAi = async (questionOverride?: string) => {
+    const question = (questionOverride ?? chatQuestion).trim();
     if (!selectedGoalId || !question || chatLoading) return;
 
     const nextMessages: ChatMessage[] = [...chatMessages, { role: 'user', content: question }];
@@ -375,6 +359,8 @@ export default function StudyPlanPage() {
     }
   };
 
+  askMaterialsAiRef.current = handleAskMaterialsAi;
+
   const groupedSessions = sessions.reduce<Record<string, SessionItem[]>>((acc, session) => {
     const day = new Date(session.plannedStartTime).toLocaleDateString('en-US', {
       weekday: 'long',
@@ -389,69 +375,14 @@ export default function StudyPlanPage() {
   return (
     <div className="min-h-full bg-gray-50">
       <div className="p-4 sm:p-4 lg:p-4">
-        <div className="mb-8 rounded-xl border border-gray-200 bg-white p-6">
-          <div className="flex items-start gap-4">
-            <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-purple-600">
-              <Sparkles className="h-7 w-7 text-white" />
-            </div>
-            <div>
-              <h2 className="mb-1 text-xl font-bold text-gray-900">AI Study Plan Generator</h2>
-              <p className="text-gray-600">Configure your preferences and generate a personalized study schedule</p>
-            </div>
-          </div>
-
-          <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-3">
-            <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">Study Hours per Day</label>
-              <input type="number" value={studyHoursPerDay} onChange={(e) => setStudyHoursPerDay(e.target.value)} min="1" max="24" className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">Study Days per Week</label>
-              <input type="number" value={studyDaysPerWeek} onChange={(e) => setStudyDaysPerWeek(e.target.value)} min="1" max="7" className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">Preferred Start Time</label>
-              <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">Preferred End Time</label>
-              <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">Break Duration (minutes)</label>
-              <input type="number" value={breakDuration} onChange={(e) => setBreakDuration(e.target.value)} min="5" max="60" className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-          </div>
-
-          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-              <div className="flex items-start gap-3">
-                <Calendar className="mt-0.5 h-5 w-5 flex-shrink-0 text-blue-600" />
-                <div>
-                  <h3 className="mb-1 font-semibold text-blue-900">Deadline Priority</h3>
-                  <p className="text-sm text-blue-700">Goals with earlier deadlines are scheduled first.</p>
-                </div>
-              </div>
-            </div>
-            <div className="rounded-lg border border-purple-200 bg-purple-50 p-4">
-              <div className="flex items-start gap-3">
-                <RotateCcw className="mt-0.5 h-5 w-5 flex-shrink-0 text-purple-600" />
-                <div>
-                  <h3 className="mb-1 font-semibold text-purple-900">Session Rotation</h3>
-                  <p className="text-sm text-purple-700">The generator rotates focus sessions across active goals.</p>
-                </div>
-              </div>
-            </div>
-            <div className="rounded-lg border border-green-200 bg-green-50 p-4">
-              <div className="flex items-start gap-3">
-                <Target className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-600" />
-                <div>
-                  <h3 className="mb-1 font-semibold text-green-900">Difficulty Balance</h3>
-                  <p className="text-sm text-green-700">Longer study windows are distributed across the week consistently.</p>
-                </div>
-              </div>
-            </div>
-          </div>
+        <div className="mb-4 flex justify-end">
+          <Link
+            href="/settings"
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-900 shadow-sm transition-colors hover:bg-gray-50"
+          >
+            <Settings className="h-4 w-4" />
+            Generation Settings
+          </Link>
         </div>
 
         <div className="mb-8 rounded-xl border border-gray-200 bg-white p-6">
@@ -477,7 +408,7 @@ export default function StudyPlanPage() {
             </select>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_280px]">
+          <div className="grid grid-cols-1 gap-4">
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
               <div className="flex flex-col gap-3 sm:flex-row">
                 <input
@@ -543,9 +474,10 @@ export default function StudyPlanPage() {
                           <p className="truncate text-sm font-semibold text-gray-900">{material.title}</p>
                         </div>
                         <p className="mt-1 text-xs text-gray-500">
-                          {material.source === 'upload' ? material.fileName : 'Suggested resource'} · {material.status}
-                          {material.extractionStatus ? ` · ${formatExtractionStatus(material.extractionStatus)}` : ''}
-                          {material.extractionTruncated ? ' · excerpt saved' : ''}
+                          {material.source === 'upload' ? material.fileName : 'Suggested resource'} - {material.status}
+                          {material.extractionStatus ? ` - ${formatExtractionStatus(material.extractionStatus)}` : ''}
+                          {material.extractionTruncated ? ' - excerpt saved' : ''}
+                          {material.extractionError ? ` - ${material.extractionError}` : ''}
                         </p>
                       </div>
                       {material.url && (
@@ -563,7 +495,7 @@ export default function StudyPlanPage() {
                 )}
               </div>
 
-              <div className="mt-5 rounded-lg border border-gray-200 bg-white">
+              <div ref={chatSectionRef} className="mt-5 rounded-lg border border-gray-200 bg-white">
                 <div className="flex flex-col gap-3 border-b border-gray-200 p-4 md:flex-row md:items-center md:justify-between">
                   <div>
                     <h4 className="text-sm font-semibold text-gray-900">Ask AI about these materials</h4>
@@ -656,24 +588,6 @@ export default function StudyPlanPage() {
               </div>
             </div>
 
-            <div className="flex flex-col gap-3">
-              <button
-                onClick={handleSuggestMaterials}
-                disabled={suggesting || !selectedGoalId}
-                className="inline-flex items-center justify-center gap-2 rounded-lg border border-purple-200 bg-purple-50 px-4 py-3 text-sm font-semibold text-purple-700 transition-colors hover:bg-purple-100 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Sparkles className="h-4 w-4" />
-                {suggesting ? 'Suggesting...' : 'Suggest Materials'}
-              </button>
-              <button
-                onClick={handleGenerateAiPlan}
-                disabled={aiGenerating || !selectedGoalId}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-gray-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Wand2 className="h-4 w-4" />
-                {aiGenerating ? 'Generating...' : 'AI Generate Tasks'}
-              </button>
-            </div>
           </div>
         </div>
 
@@ -783,19 +697,7 @@ export default function StudyPlanPage() {
 
         {loading ? (
           <div className="rounded-xl border border-gray-200 bg-white p-12 text-center text-gray-500">Loading study plan...</div>
-        ) : sessions.length === 0 ? (
-          <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
-            <div className="mb-4 flex justify-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
-                <Sparkles className="h-8 w-8 text-gray-400" />
-              </div>
-            </div>
-            <h3 className="mb-2 text-xl font-bold text-gray-900">No Study Plan Yet</h3>
-            <p className="mx-auto max-w-md text-gray-600">
-              Add subjects and generate a plan to create scheduled study sessions.
-            </p>
-          </div>
-        ) : (
+        ) : sessions.length === 0 ? null : (
           <div className="space-y-6">
             <div className="rounded-xl border border-gray-200 bg-white p-6">
               <h3 className="mb-4 text-lg font-semibold text-gray-900">Active Goals</h3>
@@ -820,21 +722,70 @@ export default function StudyPlanPage() {
                   <div key={day}>
                     <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">{day}</h4>
                     <div className="space-y-3">
-                      {daySessions.map((session) => (
-                        <div key={session.id} className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 p-4">
-                          <div>
+                      {daySessions.map((session) => {
+                        const isExpanded = expandedSessionId === session.id;
+                        const focusItems = session.task?.studyFocus ?? [];
+
+                        return (
+                        <div key={session.id} className="rounded-lg border border-gray-200 bg-gray-50">
+                          <button
+                            type="button"
+                            onClick={() => setExpandedSessionId(isExpanded ? null : session.id)}
+                            className="flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-gray-100"
+                          >
+                          <div className="min-w-0">
                             <div className="font-semibold text-gray-900">{session.title}</div>
+                            {session.task?.description && (
+                              <p className="mt-1 line-clamp-2 text-sm leading-6 text-gray-600">{session.task.description}</p>
+                            )}
                             <div className="mt-1 flex items-center gap-2 text-sm text-gray-500">
                               <Clock className="h-4 w-4" />
                               {formatClockTime(session.plannedStartTime)}
                               <span>· {formatMinutesAsHours(session.plannedDuration)}</span>
                             </div>
                           </div>
-                          <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-                            {session.status}
-                          </span>
+                          <div className="flex flex-shrink-0 items-center gap-3">
+                            <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                              {session.status}
+                            </span>
+                            <ChevronDown className={`h-5 w-5 text-gray-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                          </div>
+                          </button>
+                          {isExpanded && (
+                            <div className="border-t border-gray-200 bg-white p-4">
+                              {session.task?.description && (
+                                <p className="text-sm leading-6 text-gray-700">{session.task.description}</p>
+                              )}
+                              {session.task?.materialReference && (
+                                <p className="mt-3 text-xs font-medium text-gray-500">Material: {session.task.materialReference}</p>
+                              )}
+                              {focusItems.length > 0 && (
+                                <div className="mt-4">
+                                  <h5 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Study Focus</h5>
+                                  <ul className="mt-2 space-y-2 text-sm leading-6 text-gray-700">
+                                    {focusItems.map((item, index) => (
+                                      <li key={`${session.id}-focus-${index}`} className="rounded-md bg-gray-50 px-3 py-2">
+                                        {item}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              <div className="mt-4 flex justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => handleAskSessionAi(session)}
+                                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+                                >
+                                  <MessageSquare className="h-4 w-4" />
+                                  Ask AI about this session
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 ))}

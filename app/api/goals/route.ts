@@ -126,14 +126,39 @@ export async function DELETE(request: NextRequest) {
 
   const existingGoal = await prisma.goal.findFirst({
     where: { id, userId },
-    select: { id: true },
+    select: { id: true, title: true, progress: true, actualHoursSpent: true },
   });
 
   if (!existingGoal) {
     return NextResponse.json({ ok: false }, { status: 404 });
   }
 
+  const completedTaskDuration = await prisma.task.aggregate({
+    where: { goalId: id, userId, completed: true },
+    _sum: { estimatedDuration: true },
+  });
+  const studiedHours = Math.max(
+    existingGoal.actualHoursSpent,
+    (completedTaskDuration._sum.estimatedDuration ?? 0) / 60
+  );
+
   await prisma.$transaction([
+    prisma.activityLog.create({
+      data: {
+        userId,
+        type: "course_analytics_snapshot",
+        description: `Saved analytics history for ${existingGoal.title}`,
+        relatedEntityId: id,
+        relatedEntityType: "AnalyticsSnapshot",
+        metadata: {
+          goalId: id,
+          title: existingGoal.title,
+          studiedHours,
+          progress: existingGoal.progress,
+          deletedAt: new Date().toISOString(),
+        },
+      },
+    }),
     prisma.task.deleteMany({ where: { goalId: id, userId } }),
     prisma.studySession.deleteMany({ where: { goalId: id, userId } }),
     prisma.studyPlan.deleteMany({ where: { goalId: id, userId } }),

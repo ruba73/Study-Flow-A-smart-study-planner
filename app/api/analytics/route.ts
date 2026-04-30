@@ -16,6 +16,65 @@ function startOfWeek(date = new Date()) {
   return next;
 }
 
+function dateKey(date: Date) {
+  const day = startOfDay(date);
+  return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function calculateTaskStreak(
+  tasks: Array<{ completed: boolean; completedAt: Date | null; scheduledDate: Date | null }>,
+  progressRows: Array<{ date: Date; timeStudied: number }>
+) {
+  const plannedByDay = new Map<string, { planned: number; completed: number }>();
+  const completedWorkDays = new Set<string>();
+
+  for (const task of tasks) {
+    if (task.scheduledDate) {
+      const key = dateKey(task.scheduledDate);
+      const current = plannedByDay.get(key) ?? { planned: 0, completed: 0 };
+      current.planned += 1;
+      if (task.completed) current.completed += 1;
+      plannedByDay.set(key, current);
+    }
+
+    if (task.completedAt) {
+      completedWorkDays.add(dateKey(task.completedAt));
+    }
+  }
+
+  for (const row of progressRows) {
+    if (row.timeStudied > 0) {
+      completedWorkDays.add(dateKey(row.date));
+    }
+  }
+
+  function isStreakDay(day: Date) {
+    const key = dateKey(day);
+    const planned = plannedByDay.get(key);
+    if (planned && planned.planned > 0) {
+      return planned.completed >= planned.planned;
+    }
+    return completedWorkDays.has(key);
+  }
+
+  const today = startOfDay();
+  let cursor = isStreakDay(today) ? today : addDays(today, -1);
+  let streak = 0;
+
+  while (isStreakDay(cursor)) {
+    streak += 1;
+    cursor = addDays(cursor, -1);
+  }
+
+  return streak;
+}
+
 export async function GET() {
   const userId = await getSessionUserId();
   if (!userId) {
@@ -29,7 +88,7 @@ export async function GET() {
   const sixDaysAgo = new Date(currentDayStart);
   sixDaysAgo.setDate(sixDaysAgo.getDate() - 6);
 
-  const [user, progressRows, sessionRows, goalRows, taskRows] = await Promise.all([
+  const [user, progressRows, sessionRows, goalRows, taskRows, archivedCourseRows] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: { stats: true },
@@ -60,6 +119,7 @@ export async function GET() {
         title: true,
         progress: true,
         status: true,
+        actualHoursSpent: true,
       },
     }),
     prisma.task.findMany({
@@ -72,6 +132,11 @@ export async function GET() {
         completedAt: true,
         scheduledDate: true,
       },
+    }),
+    prisma.activityLog.findMany({
+      where: { userId, type: "course_analytics_snapshot" },
+      orderBy: { createdAt: "asc" },
+      select: { metadata: true },
     }),
   ]);
 
@@ -107,10 +172,10 @@ export async function GET() {
   const dailyConsistency = Array.from({ length: 7 }).map((_, index) => {
     const day = new Date(sixDaysAgo);
     day.setDate(sixDaysAgo.getDate() + index);
-    const dayKey = day.toISOString().split("T")[0];
-    const matchingRows = progressRows.filter((row) => row.date.toISOString().split("T")[0] === dayKey);
+    const dayKey = dateKey(day);
+    const matchingRows = progressRows.filter((row) => dateKey(row.date) === dayKey);
     const taskMinutes = taskRows
-      .filter((task) => task.completed && task.completedAt?.toISOString().split("T")[0] === dayKey)
+      .filter((task) => task.completed && task.completedAt && dateKey(task.completedAt) === dayKey)
       .reduce((sum, task) => sum + task.estimatedDuration, 0);
     const progressMinutes = matchingRows.reduce((sum, row) => sum + row.timeStudied, 0);
     const hours = Math.max(taskMinutes, progressMinutes) / 60;
@@ -140,24 +205,64 @@ export async function GET() {
   }));
 
   const courseColors = ["#3B82F6", "#16A34A", "#7C3AED", "#F97316", "#DC2626", "#4F46E5"];
-  const timeByCourse = goalRows.map((goal, index) => ({
-    name: goal.title,
-    value: Math.max(
-      0,
-      Math.round(
-        taskRows
-          .filter((task) => task.goalId === goal.id && task.completed)
-          .reduce((sum, task) => sum + task.estimatedDuration, 0) / 60
-      )
-    ),
+  const archivedCourses = archivedCourseRows.map((row) => {
+    const metadata = row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+      ? (row.metadata as Record<string, unknown>)
+      : {};
+
+    return {
+      id: typeof metadata.goalId === "string" ? metadata.goalId : `archived-${String(metadata.title ?? "Course")}`,
+      title: typeof metadata.title === "string" ? metadata.title : "Deleted subject",
+      studiedHours: typeof metadata.studiedHours === "number" ? metadata.studiedHours : 0,
+      progress: typeof metadata.progress === "number" ? metadata.progress : 0,
+    };
+  });
+
+  const courseTimeMap = new Map<string, { name: string; value: number; progress: number }>();
+  for (const goal of goalRows) {
+    const completedHours = taskRows
+      .filter((task) => task.goalId === goal.id && task.completed)
+      .reduce((sum, task) => sum + task.estimatedDuration, 0) / 60;
+    courseTimeMap.set(goal.id, {
+      name: goal.title,
+      value: Math.max(completedHours, goal.actualHoursSpent),
+      progress: goal.progress,
+    });
+  }
+  for (const archived of archivedCourses) {
+    if (courseTimeMap.has(archived.id)) continue;
+    courseTimeMap.set(archived.id, {
+      name: archived.title,
+      value: archived.studiedHours,
+      progress: archived.progress,
+    });
+  }
+
+  const courseEntries = Array.from(courseTimeMap.values());
+  const timeByCourse = courseEntries.map((course, index) => ({
+    name: course.name,
+    value: Math.max(0, Math.round(course.value)),
     color: courseColors[index % courseColors.length],
   }));
 
   const progressClasses = ["bg-blue-500", "bg-green-600", "bg-purple-600", "bg-orange-500", "bg-red-600", "bg-indigo-600"];
-  const courseProgress = goalRows.map((goal, index) => {
+  const courseProgress = courseEntries.map((course, index) => {
+    const goal = goalRows.find((item) => item.title === course.name);
+    if (!goal) {
+      return {
+        name: course.name,
+        studied: `${Math.round(course.value)}h studied`,
+        pct: course.progress,
+        color: progressClasses[index % progressClasses.length],
+      };
+    }
+
     const goalTasks = taskRows.filter((task) => task.goalId === goal.id);
     const completedTasks = goalTasks.filter((task) => task.completed);
-    const studiedHours = completedTasks.reduce((sum, task) => sum + task.estimatedDuration, 0) / 60;
+    const studiedHours = Math.max(
+      completedTasks.reduce((sum, task) => sum + task.estimatedDuration, 0) / 60,
+      goal.actualHoursSpent
+    );
     const progress = goalTasks.length > 0 ? Math.round((completedTasks.length / goalTasks.length) * 100) : goal.progress;
 
     return {
@@ -177,10 +282,11 @@ export async function GET() {
 
   const sessionsCompleted = taskRows.filter((task) => task.completed).length;
   const completedGoals = courseProgress.filter((goal) => goal.pct >= 100).length;
+  const currentStreak = calculateTaskStreak(taskRows, progressRows);
 
   return NextResponse.json({
     kpis: [
-      { label: "Study Streak", value: `${stats.currentStreak} days`, icon: "Flame", iconBg: "bg-orange-50", iconColor: "text-orange-600" },
+      { label: "Study Streak", value: `${currentStreak} days`, icon: "Flame", iconBg: "bg-orange-50", iconColor: "text-orange-600" },
       { label: "Avg. Hours/Day", value: `${avgHoursPerDay}h`, icon: "Clock", iconBg: "bg-blue-50", iconColor: "text-blue-600" },
       { label: "Sessions Completed", value: String(sessionsCompleted), icon: "Target", iconBg: "bg-green-50", iconColor: "text-green-600" },
       { label: "Goals Achieved", value: `${completedGoals}/${goalRows.length || stats.totalGoals}`, icon: "Award", iconBg: "bg-purple-50", iconColor: "text-purple-600" },

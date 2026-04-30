@@ -101,6 +101,26 @@ function buildFallbackPlanFixes(args: {
   ];
 }
 
+type PlanFixSuggestion = ReturnType<typeof buildFallbackPlanFixes>[number];
+
+function isValidPlanFixSuggestion(suggestion: unknown): suggestion is PlanFixSuggestion {
+  if (!suggestion || typeof suggestion !== "object") return false;
+  const record = suggestion as Record<string, unknown>;
+  const changes = record.changes;
+  if (!changes || typeof changes !== "object") return false;
+  const changeRecord = changes as Record<string, unknown>;
+
+  return (
+    typeof record.title === "string" &&
+    typeof record.description === "string" &&
+    typeof changeRecord.studyHoursPerDay === "number" &&
+    typeof changeRecord.studyDaysPerWeek === "number" &&
+    typeof changeRecord.startTime === "string" &&
+    typeof changeRecord.endTime === "string" &&
+    typeof changeRecord.breakDuration === "number"
+  );
+}
+
 async function suggestPlanFixes(args: {
   remaining: string;
   studyHoursPerDay: number;
@@ -157,8 +177,11 @@ Current settings:
 Suggest 3 specific fixes. Keep values realistic: studyHoursPerDay 1-12, studyDaysPerWeek 1-7, breakDuration 5-60. Include one option that changes time availability, one option that changes study days/hours, and one option that reduces breaks or scope.`,
     });
 
-    const parsed = JSON.parse(responseText) as { suggestions?: typeof fallback };
-    return Array.isArray(parsed.suggestions) && parsed.suggestions.length > 0 ? parsed.suggestions.slice(0, 3) : fallback;
+    const parsed = JSON.parse(responseText) as { suggestions?: unknown };
+    const suggestions = Array.isArray(parsed.suggestions)
+      ? parsed.suggestions.filter(isValidPlanFixSuggestion).slice(0, 3)
+      : [];
+    return suggestions.length > 0 ? suggestions : fallback;
   } catch {
     return fallback;
   }
@@ -196,11 +219,12 @@ export async function GET() {
       },
     }),
     prisma.studySession.findMany({
-      where: { userId, plannedStartTime: { gte: startOfDay() } },
+      where: { userId, plannedStartTime: { gte: startOfDay() }, status: { not: "completed" } },
       orderBy: { plannedStartTime: "asc" },
       take: 30,
       select: {
         id: true,
+        goalId: true,
         title: true,
         type: true,
         plannedStartTime: true,
@@ -210,7 +234,54 @@ export async function GET() {
     }),
   ]);
 
-  return NextResponse.json({ user, goals, sessions });
+  const sessionTasks = await prisma.task.findMany({
+    where: {
+      userId,
+      sessionId: { in: sessions.map((session) => session.id) },
+    },
+    select: {
+      sessionId: true,
+      title: true,
+      description: true,
+      resources: true,
+    },
+  });
+  const taskBySessionId = new Map(sessionTasks.map((task) => [task.sessionId, task]));
+
+  return NextResponse.json({
+    user,
+    goals,
+    sessions: sessions.map((session) => {
+      const task = taskBySessionId.get(session.id);
+      const resources = Array.isArray(task?.resources) ? task.resources : [];
+      const primaryResource = resources.find((resource) => resource && typeof resource === "object" && !Array.isArray(resource)) as
+        | Record<string, unknown>
+        | undefined;
+
+      return {
+        ...session,
+        task: task
+          ? {
+              title: task.title,
+              description: task.description,
+              studyFocus: Array.isArray(primaryResource?.studyFocus)
+                ? primaryResource.studyFocus.filter((item): item is string => typeof item === "string")
+                : [],
+              materialReference:
+                typeof primaryResource?.materialReference === "string"
+                  ? primaryResource.materialReference
+                  : typeof primaryResource?.title === "string"
+                    ? primaryResource.title
+                    : "",
+              aiQuestion:
+                typeof primaryResource?.aiQuestion === "string"
+                  ? primaryResource.aiQuestion
+                  : `Explain ${task.title} using my uploaded materials.`,
+            }
+          : null,
+      };
+    }),
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -450,7 +521,7 @@ export async function POST(request: NextRequest) {
   });
 
   const sessions = await prisma.studySession.findMany({
-    where: { userId, plannedStartTime: { gte: startOfDay() } },
+    where: { userId, plannedStartTime: { gte: startOfDay() }, status: { not: "completed" } },
     orderBy: { plannedStartTime: "asc" },
     take: 30,
     select: {

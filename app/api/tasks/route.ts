@@ -18,6 +18,17 @@ function getWeekNumber(date: Date) {
   );
 }
 
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function dateKey(date: Date) {
+  const day = startOfDay(date);
+  return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+}
+
 async function syncGoalProgress(userId: string, goalId: string) {
   const [totalTasks, completedTasks, completedDuration] = await Promise.all([
     prisma.task.count({ where: { userId, goalId } }),
@@ -142,20 +153,69 @@ async function syncDailyProgress(userId: string, date = new Date()) {
 }
 
 async function syncUserStats(userId: string) {
-  const [completedGoals, totalGoals, totalStudyTime] = await Promise.all([
+  const [completedGoals, totalGoals, totalStudyTime, taskRows, progressRows] = await Promise.all([
     prisma.goal.count({ where: { userId, status: "completed" } }),
     prisma.goal.count({ where: { userId } }),
     prisma.task.aggregate({
       where: { userId, completed: true },
       _sum: { estimatedDuration: true },
     }),
+    prisma.task.findMany({
+      where: { userId },
+      select: { completed: true, completedAt: true, scheduledDate: true },
+    }),
+    prisma.progress.findMany({
+      where: { userId },
+      select: { date: true, timeStudied: true },
+    }),
   ]);
+
+  const plannedByDay = new Map<string, { planned: number; completed: number }>();
+  const completedWorkDays = new Set<string>();
+
+  for (const task of taskRows) {
+    if (task.scheduledDate) {
+      const key = dateKey(task.scheduledDate);
+      const current = plannedByDay.get(key) ?? { planned: 0, completed: 0 };
+      current.planned += 1;
+      if (task.completed) current.completed += 1;
+      plannedByDay.set(key, current);
+    }
+
+    if (task.completedAt) {
+      completedWorkDays.add(dateKey(task.completedAt));
+    }
+  }
+
+  for (const progress of progressRows) {
+    if (progress.timeStudied > 0) {
+      completedWorkDays.add(dateKey(progress.date));
+    }
+  }
+
+  function isStreakDay(day: Date) {
+    const key = dateKey(day);
+    const planned = plannedByDay.get(key);
+    if (planned && planned.planned > 0) {
+      return planned.completed >= planned.planned;
+    }
+    return completedWorkDays.has(key);
+  }
+
+  const today = startOfDay();
+  let cursor = isStreakDay(today) ? today : addDays(today, -1);
+  let currentStreak = 0;
+
+  while (isStreakDay(cursor)) {
+    currentStreak += 1;
+    cursor = addDays(cursor, -1);
+  }
 
   await prisma.user.update({
     where: { id: userId },
     data: {
       stats: {
-        currentStreak: 0,
+        currentStreak,
         completedGoals,
         totalGoals,
         totalStudyTime: totalStudyTime._sum.estimatedDuration ?? 0,
