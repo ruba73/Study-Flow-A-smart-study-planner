@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { Subject } from '@/app/types/types';
@@ -13,27 +13,11 @@ interface SubjectModalProps {
 }
 
 export function SubjectModal({ isOpen, onClose, onSave, subject }: SubjectModalProps) {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [priority, setPriority] = useState<'High' | 'Medium' | 'Low'>('Medium');
-  const [hoursNeeded, setHoursNeeded] = useState('10');
-  const [deadline, setDeadline] = useState('');
-
-  useEffect(() => {
-    if (subject) {
-      setName(subject.name);
-      setDescription(subject.description);
-      setPriority(subject.priority);
-      setHoursNeeded(subject.hoursNeeded.toString());
-      setDeadline(subject.deadline);
-    } else {
-      setName('');
-      setDescription('');
-      setPriority('Medium');
-      setHoursNeeded('10');
-      setDeadline('');
-    }
-  }, [subject, isOpen]);
+  const [name, setName] = useState(subject?.name ?? '');
+  const [description, setDescription] = useState(subject?.description ?? '');
+  const [priority, setPriority] = useState<'High' | 'Medium' | 'Low'>(subject?.priority ?? 'Medium');
+  const [hoursNeeded, setHoursNeeded] = useState(subject ? subject.hoursNeeded.toString() : '');
+  const [deadline, setDeadline] = useState(subject?.deadline ?? '');
 
   const handleSave = () => {
     if (!name.trim()) { alert('Please enter a subject name'); return; }
@@ -68,8 +52,8 @@ export function SubjectModal({ isOpen, onClose, onSave, subject }: SubjectModalP
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g., Data Structures"
-            className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Data Structures"
+            className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
 
@@ -80,9 +64,9 @@ export function SubjectModal({ isOpen, onClose, onSave, subject }: SubjectModalP
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Brief description..."
+            placeholder="Chapters, topics, or materials to finish"
             rows={3}
-            className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+            className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
           />
         </div>
 
@@ -94,7 +78,7 @@ export function SubjectModal({ isOpen, onClose, onSave, subject }: SubjectModalP
             <select
               value={priority}
               onChange={(e) => setPriority(e.target.value as 'High' | 'Medium' | 'Low')}
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="Low">Low</option>
               <option value="Medium">Medium</option>
@@ -112,7 +96,8 @@ export function SubjectModal({ isOpen, onClose, onSave, subject }: SubjectModalP
               onChange={(e) => setHoursNeeded(e.target.value)}
               min="1"
               max="100"
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="10"
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
         </div>
@@ -125,7 +110,7 @@ export function SubjectModal({ isOpen, onClose, onSave, subject }: SubjectModalP
             type="date"
             value={deadline}
             onChange={(e) => setDeadline(e.target.value)}
-            className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
 

@@ -1,87 +1,70 @@
-"use client";
-import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/card";
-export function ProgressTracker(){
-    const dailyProgress = {
-        percentage: 75,
-        completed: 3,
-        total: 4,
-    };
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { DashboardData } from "@/lib/dashboard";
 
-    const weeklyProgress = {
-        percentage: 60,
-        completed: 10,
-        total:18,
-    };
-    const upcomingDeadlines = [
-        {
-            title: "Data Structures Exam",
-            daysLeft: 2,
-            color: "text-red-600",
-        },
-          {
-            title: "Web Dev Project",
-            daysLeft: 7,
-            color: "text-green-600",
-        },
-        {
-            title: "Science Project",
-            daysLeft: 5,
-            color: "text-yellow-600",
-        }, 
-    ];
+interface ProgressTrackerProps {
+  progress: DashboardData["progress"];
+}
 
-    return (
+export function ProgressTracker({ progress }: ProgressTrackerProps) {
+  const dailyPercentage = Math.min(100, Math.max(0, progress.daily.percentage));
+  const weeklyPercentage = Math.min(100, Math.max(0, progress.weekly.percentage));
+
+  return (
     <Card>
-        <CardHeader>
-            <CardTitle className="text-lg font-bold">Progress Tracker</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-5">
-            {/* Daily Progress */}
-            <div>
-                <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-medium text-gray-700">Daily Progress</span>
-                    <span className="text-sm font-semibold text-blue-600">{dailyProgress.percentage}%</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div 
-                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${dailyProgress.percentage}%` }}
-                    />
-                </div>
-                <p className="text-xs text-gray-500 mt-1">
-                    {dailyProgress.completed} of {dailyProgress.total} tasks completed
-                </p>
-            </div>
-            {/*Weekly Progress*/}
-            <div>
-                <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-medium text-gray-700">Weekly Progress</span>
-                    <span className="text-sm font-semibold text-green-600">{weeklyProgress.percentage}%</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div    
-                    className="bg-green-600 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${weeklyProgress.percentage}%` }}/>
-                </div>
-                <p className="text-xs text-gray-500 mt-1">
-                    {weeklyProgress.completed} of {weeklyProgress.total} Study Hours completed    
-                </p>
-            </div>
+      <CardHeader>
+        <CardTitle className="text-lg font-bold">Progress Tracker</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-sm font-medium text-gray-700">Daily Progress</span>
+            <span className="text-sm font-semibold text-blue-600">{dailyPercentage}%</span>
+          </div>
+          <div className="h-2 w-full rounded-full bg-gray-200">
+            <div
+              className="h-2 rounded-full bg-blue-600 transition-all duration-300"
+              style={{ width: `${dailyPercentage}%` }}
+            />
+          </div>
+          <p className="mt-1 text-xs text-gray-500">
+            {progress.daily.completed} of {progress.daily.total} tasks completed
+          </p>
+        </div>
 
-            <div className="w-full border-t border-gray-200"></div>
-            {/* Upcoming Deadlines */}
-            <div className="space-y-2">
-                <h2 className="text-sm font-bold text-gray-700">Upcoming Deadlines</h2>
-                {upcomingDeadlines.map((deadline, index) => (
-                    <div key={index} className="flex justify-between items-center">
-                        <span className="text-sm text-gray-700">{deadline.title}</span>
-                        <span className={`text-sm font-medium ${deadline.color}`}>
-                        {deadline.daysLeft} days
-                        </span>
-                    </div>
-                    ))}
-            </div>
-        </CardContent>
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-sm font-medium text-gray-700">Weekly Progress</span>
+            <span className="text-sm font-semibold text-green-600">{weeklyPercentage}%</span>
+          </div>
+          <div className="h-2 w-full rounded-full bg-gray-200">
+            <div
+              className="h-2 rounded-full bg-green-600 transition-all duration-300"
+              style={{ width: `${weeklyPercentage}%` }}
+            />
+          </div>
+          <p className="mt-1 text-xs text-gray-500">
+            {progress.weekly.completed} of {progress.weekly.total} study hours completed
+          </p>
+        </div>
+
+        <div className="w-full border-t border-gray-200" />
+
+        <div className="space-y-2">
+          <h2 className="text-sm font-bold text-gray-700">Upcoming Deadlines</h2>
+          {progress.upcomingDeadlines.length === 0 ? (
+            <p className="text-sm text-gray-500">No upcoming deadlines.</p>
+          ) : (
+            progress.upcomingDeadlines.map((deadline) => (
+              <div key={deadline.id} className="flex items-center justify-between">
+                <span className="text-sm text-gray-700">{deadline.title}</span>
+                <span className={`text-sm font-medium ${deadline.color}`}>
+                  {deadline.daysLeft} day{deadline.daysLeft === 1 ? "" : "s"}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      </CardContent>
     </Card>
-    );
+  );
 }

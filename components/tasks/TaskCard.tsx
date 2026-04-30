@@ -4,8 +4,8 @@ import { Task } from '@/app/(dashboard)/tasks/page';
 interface TaskCardProps {
   task: Task;
   onToggle: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
 }
 
 export function TaskCard({ task, onToggle, onEdit, onDelete }: TaskCardProps) {
@@ -82,20 +82,26 @@ export function TaskCard({ task, onToggle, onEdit, onDelete }: TaskCardProps) {
         </div>
 
         {/* Action Buttons */}
-        <div className="flex gap-2 sm:flex-col sm:items-end">
-          <button
-            onClick={onEdit}
-            className="p-2 hover:bg-blue-50 text-blue-600 rounded transition-colors"
-          >
-            <Edit className="w-4 h-4" />
-          </button>
-          <button
-            onClick={onDelete}
-            className="p-2 hover:bg-red-50 text-red-600 rounded transition-colors"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
+        {(onEdit || onDelete) && (
+          <div className="flex gap-2 sm:flex-col sm:items-end">
+            {onEdit && (
+              <button
+                onClick={onEdit}
+                className="p-2 hover:bg-blue-50 text-blue-600 rounded transition-colors"
+              >
+                <Edit className="w-4 h-4" />
+              </button>
+            )}
+            {onDelete && (
+              <button
+                onClick={onDelete}
+                className="p-2 hover:bg-red-50 text-red-600 rounded transition-colors"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
     </div>

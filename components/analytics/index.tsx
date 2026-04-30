@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -26,106 +27,21 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-// =====================
-// DATA (swap later)
-// =====================
 type KPI = {
   label: string;
   value: string;
-  Icon: LucideIcon;
-  iconBg: string;   // tailwind class
-  iconColor: string; // tailwind class
+  icon: string;
+  iconBg: string;
+  iconColor: string;
 };
 
-const kpis: KPI[] = [
-  {
-    label: "Study Streak",
-    value: "7 days",
-    Icon: Flame,
-    iconBg: "bg-orange-50",
-    iconColor: "text-orange-600",
-  },
-  {
-    label: "Avg. Hours/Day",
-    value: "4.2h",
-    Icon: Clock,
-    iconBg: "bg-blue-50",
-    iconColor: "text-blue-600",
-  },
-  {
-    label: "Sessions Completed",
-    value: "156",
-    Icon: Target,
-    iconBg: "bg-green-50",
-    iconColor: "text-green-600",
-  },
-  {
-    label: "Goals Achieved",
-    value: "12/18",
-    Icon: Award,
-    iconBg: "bg-purple-50",
-    iconColor: "text-purple-600",
-  },
-];
-
-const weeklyStudy = [
-  { week: "Week 1", actual: 18, target: 24 },
-  { week: "Week 2", actual: 22, target: 24 },
-  { week: "Week 3", actual: 24, target: 24 },
-  { week: "Week 4", actual: 26, target: 24 },
-  { week: "Week 5", actual: 23, target: 24 },
-  { week: "Week 6", actual: 28, target: 24 },
-];
-
-const dailyConsistency = [
-  { day: "Mon", hours: 4.0 },
-  { day: "Tue", hours: 5.0 },
-  { day: "Wed", hours: 3.0 },
-  { day: "Thu", hours: 4.5 },
-  { day: "Fri", hours: 4.0 },
-  { day: "Sat", hours: 3.6 },
-  { day: "Sun", hours: 2.0 },
-];
-
-const sessionType = [
-  { name: "New Material", value: 45, color: "#3B82F6" }, // blue
-  { name: "Review", value: 30, color: "#8B5CF6" },       // purple
-  { name: "Practice", value: 25, color: "#10B981" },     // green
-];
-
-const timeByCourse = [
-  { name: "Data Structures", value: 24, color: "#3B82F6" }, // blue
-  { name: "Calculus II", value: 16, color: "#16A34A" },     // green-600
-  { name: "Web Development", value: 20, color: "#7C3AED" }, // purple-600
-  { name: "Database Systems", value: 12, color: "#F97316" },// orange-500
-  { name: "Linear Algebra", value: 18, color: "#DC2626" },  // red-600
-  { name: "Operating Systems", value: 10, color: "#4F46E5" },// indigo-600
-];
-
-const courseProgress = [
-  { name: "Data Structures", studied: "24h studied", pct: 45, color: "bg-blue-500" },
-  { name: "Calculus II", studied: "16h studied", pct: 62, color: "bg-green-600" },
-  { name: "Web Development", studied: "20h studied", pct: 78, color: "bg-purple-600" },
-  { name: "Database Systems", studied: "12h studied", pct: 38, color: "bg-orange-500" },
-  { name: "Linear Algebra", studied: "18h studied", pct: 55, color: "bg-red-600" },
-  { name: "Operating Systems", studied: "10h studied", pct: 30, color: "bg-indigo-600" },
-];
+const iconMap: Record<string, LucideIcon> = { Flame, Clock, Target, Award };
 
 function Card({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-      {children}
-    </div>
-  );
+  return <div className="rounded-xl border border-gray-200 bg-white shadow-sm">{children}</div>;
 }
 
-function CardHeader({
-  title,
-  right,
-}: {
-  title: string;
-  right?: React.ReactNode;
-}) {
+function CardHeader({ title, right }: { title: string; right?: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between p-6 pb-2">
       <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
@@ -149,41 +65,27 @@ function tooltipStyle() {
   } as const;
 }
 
-function ProgressBar({
-  value,
-  colorClass,
-}: {
-  value: number;
-  colorClass: string;
-}) {
-  const v = Math.max(0, Math.min(100, value));
+function ProgressBar({ value, colorClass }: { value: number; colorClass: string }) {
+  const bounded = Math.max(0, Math.min(100, value));
   return (
-    <div className="w-full bg-gray-200 rounded-full h-2.5">
-      <div
-        className={`h-2.5 rounded-full ${colorClass} transition-all`}
-        style={{ width: `${v}%` }}
-      />
+    <div className="h-2.5 w-full rounded-full bg-gray-200">
+      <div className={`h-2.5 rounded-full ${colorClass} transition-all`} style={{ width: `${bounded}%` }} />
     </div>
   );
 }
 
-function StatCard({
-  label,
-  value,
-  Icon,
-  iconBg,
-  iconColor,
-}: KPI) {
+function StatCard({ label, value, icon, iconBg, iconColor }: KPI) {
+  const Icon = iconMap[icon];
   return (
     <Card>
       <div className="p-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm text-gray-600 mb-1">{label}</p>
+            <p className="mb-1 text-sm text-gray-600">{label}</p>
             <p className="text-3xl font-bold text-gray-900">{value}</p>
           </div>
-          <div className={`w-12 h-12 rounded-full ${iconBg} flex items-center justify-center`}>
-            <Icon className={`w-6 h-6 ${iconColor}`} />
+          <div className={`flex h-12 w-12 items-center justify-center rounded-full ${iconBg}`}>
+            <Icon className={`h-6 w-6 ${iconColor}`} />
           </div>
         </div>
       </div>
@@ -204,21 +106,21 @@ function InsightCard({
 }) {
   const tones = {
     blue: {
-      wrap: "bg-blue-50 border-blue-200",
+      wrap: "border-blue-200 bg-blue-50",
       iconWrap: "bg-blue-100",
       icon: "text-blue-600",
       title: "text-blue-900",
       text: "text-blue-800",
     },
     orange: {
-      wrap: "bg-orange-50 border-orange-200",
+      wrap: "border-orange-200 bg-orange-50",
       iconWrap: "bg-orange-100",
       icon: "text-orange-600",
       title: "text-orange-900",
       text: "text-orange-800",
     },
     green: {
-      wrap: "bg-green-50 border-green-200",
+      wrap: "border-green-200 bg-green-50",
       iconWrap: "bg-green-100",
       icon: "text-green-600",
       title: "text-green-900",
@@ -227,13 +129,13 @@ function InsightCard({
   }[tone];
 
   return (
-    <div className={`border rounded-xl p-6 ${tones.wrap}`}>
+    <div className={`rounded-xl border p-6 ${tones.wrap}`}>
       <div className="flex items-start gap-3">
-        <div className={`w-10 h-10 rounded-full ${tones.iconWrap} flex items-center justify-center`}>
-          <Icon className={`w-5 h-5 ${tones.icon}`} />
+        <div className={`flex h-10 w-10 items-center justify-center rounded-full ${tones.iconWrap}`}>
+          <Icon className={`h-5 w-5 ${tones.icon}`} />
         </div>
         <div>
-          <h4 className={`font-semibold mb-1 ${tones.title}`}>{title}</h4>
+          <h4 className={`mb-1 font-semibold ${tones.title}`}>{title}</h4>
           <p className={`text-sm ${tones.text}`}>{message}</p>
         </div>
       </div>
@@ -241,27 +143,61 @@ function InsightCard({
   );
 }
 
-
 export default function AnalyticsPageView() {
+  const [loading, setLoading] = useState(true);
+  const [kpis, setKpis] = useState<KPI[]>([]);
+  const [weeklyStudy, setWeeklyStudy] = useState<Array<{ week: string; actual: number; target: number }>>([]);
+  const [dailyConsistency, setDailyConsistency] = useState<Array<{ day: string; hours: number }>>([]);
+  const [sessionType, setSessionType] = useState<Array<{ name: string; value: number; color: string }>>([]);
+  const [timeByCourse, setTimeByCourse] = useState<Array<{ name: string; value: number; color: string }>>([]);
+  const [courseProgress, setCourseProgress] = useState<Array<{ name: string; studied: string; pct: number; color: string }>>([]);
+
+  useEffect(() => {
+    async function loadAnalytics() {
+      setLoading(true);
+      try {
+        const response = await fetch("/api/analytics", { cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json();
+        setKpis(data.kpis);
+        setWeeklyStudy(data.weeklyStudy);
+        setDailyConsistency(data.dailyConsistency);
+        setSessionType(data.sessionType);
+        setTimeByCourse(data.timeByCourse);
+        setCourseProgress(data.courseProgress);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadAnalytics();
+  }, []);
+
+  if (loading) {
+    return <div className="min-h-full bg-gray-50 p-4 text-sm text-gray-500">Loading analytics...</div>;
+  }
+
+  const topCourse = courseProgress[0];
+  const weakestCourse = [...courseProgress].sort((a, b) => a.pct - b.pct)[0];
+  const streakKpi = kpis.find((item) => item.label === "Study Streak")?.value ?? "0 days";
+
   return (
     <div className="min-h-full bg-gray-50">
       <div className="p-4 sm:p-4 lg:p-4">
-        {/* KPI Section (match screenshot layout) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
-          {kpis.map((k) => (
-            <StatCard key={k.label} {...k} />
+        <div className="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
+          {kpis.map((item) => (
+            <StatCard key={item.label} {...item} />
           ))}
         </div>
 
-        {/* Charts Row 1 */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+        <div className="mb-8 grid grid-cols-1 gap-6 xl:grid-cols-2">
           <Card>
             <CardHeader
               title="Weekly Study Hours"
               right={
-                <span className="text-sm text-green-600 font-medium flex items-center gap-1">
-                  <TrendingUp className="w-4 h-4" />
-                  +15% this week
+                <span className="flex items-center gap-1 text-sm font-medium text-green-600">
+                  <TrendingUp className="h-4 w-4" />
+                  Last 6 weeks
                 </span>
               }
             />
@@ -279,13 +215,13 @@ export default function AnalyticsPageView() {
                 </ResponsiveContainer>
               </div>
 
-              <div className="flex items-center justify-center gap-6 mt-4 text-xs">
+              <div className="mt-4 flex items-center justify-center gap-6 text-xs">
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-blue-500 rounded" />
-                  <span className="text-gray-700 font-medium">Actual Hours</span>
+                  <div className="h-3 w-3 rounded bg-blue-500" />
+                  <span className="font-medium text-gray-700">Actual Hours</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-gray-300 rounded" />
+                  <div className="h-3 w-3 rounded bg-gray-300" />
                   <span className="text-gray-400">Target Hours</span>
                 </div>
               </div>
@@ -318,8 +254,7 @@ export default function AnalyticsPageView() {
           </Card>
         </div>
 
-        {/* Charts Row 2 */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+        <div className="mb-8 grid grid-cols-1 gap-6 xl:grid-cols-2">
           <Card>
             <CardHeader title="Session Type Distribution" />
             <CardContent>
@@ -327,8 +262,8 @@ export default function AnalyticsPageView() {
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie data={sessionType} dataKey="value" nameKey="name" outerRadius={110} paddingAngle={2}>
-                      {sessionType.map((s) => (
-                        <Cell key={s.name} fill={s.color} />
+                      {sessionType.map((item) => (
+                        <Cell key={item.name} fill={item.color} />
                       ))}
                     </Pie>
                     <Tooltip {...tooltipStyle()} />
@@ -336,14 +271,14 @@ export default function AnalyticsPageView() {
                 </ResponsiveContainer>
               </div>
 
-              <div className="grid grid-cols-3 gap-8 w-full max-w-md mx-auto mt-2">
-                {sessionType.map((s) => (
-                  <div key={s.name} className="text-center">
-                    <div className="flex items-center justify-center gap-2 mb-1">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: s.color }} />
-                      <p className="text-xs text-gray-600">{s.name}</p>
+              <div className="mx-auto mt-2 grid w-full max-w-md grid-cols-3 gap-8">
+                {sessionType.map((item) => (
+                  <div key={item.name} className="text-center">
+                    <div className="mb-1 flex items-center justify-center gap-2">
+                      <div className="h-3 w-3 rounded-full" style={{ backgroundColor: item.color }} />
+                      <p className="text-xs text-gray-600">{item.name}</p>
                     </div>
-                    <p className="text-3xl font-bold text-gray-900">{s.value}</p>
+                    <p className="text-3xl font-bold text-gray-900">{item.value}</p>
                   </div>
                 ))}
               </div>
@@ -356,16 +291,9 @@ export default function AnalyticsPageView() {
               <div className="h-[320px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie
-                      data={timeByCourse}
-                      dataKey="value"
-                      nameKey="name"
-                      innerRadius={70}
-                      outerRadius={110}
-                      paddingAngle={2}
-                    >
-                      {timeByCourse.map((c) => (
-                        <Cell key={c.name} fill={c.color} />
+                    <Pie data={timeByCourse} dataKey="value" nameKey="name" innerRadius={70} outerRadius={110} paddingAngle={2}>
+                      {timeByCourse.map((item) => (
+                        <Cell key={item.name} fill={item.color} />
                       ))}
                     </Pie>
                     <Tooltip {...tooltipStyle()} />
@@ -376,51 +304,49 @@ export default function AnalyticsPageView() {
           </Card>
         </div>
 
-        {/* Course Progress Overview (fix colors) */}
         <Card>
           <CardHeader title="Course Progress Overview" />
           <CardContent>
             <div className="space-y-5">
-              {courseProgress.map((c) => (
-                <div key={c.name}>
-                  <div className="flex items-center justify-between mb-2">
+              {courseProgress.map((item) => (
+                <div key={item.name}>
+                  <div className="mb-2 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <span className={`w-2.5 h-2.5 rounded-full ${c.color}`} />
-                      <span className="text-sm font-medium text-gray-900">{c.name}</span>
+                      <span className={`h-2.5 w-2.5 rounded-full ${item.color}`} />
+                      <span className="text-sm font-medium text-gray-900">{item.name}</span>
                     </div>
 
                     <div className="flex items-center gap-4">
-                      <span className="text-xs text-gray-500">{c.studied}</span>
-                      <span className="text-sm font-bold text-gray-900">{c.pct}%</span>
+                      <span className="text-xs text-gray-500">{item.studied}</span>
+                      <span className="text-sm font-bold text-gray-900">{item.pct}%</span>
                     </div>
                   </div>
 
-                  <ProgressBar value={c.pct} colorClass={c.color} />
+                  <ProgressBar value={item.pct} colorClass={item.color} />
                 </div>
               ))}
             </div>
           </CardContent>
         </Card>
 
-        {/* Insights (fix icon + tones) */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mt-8">
+        <div className="mt-8 grid grid-cols-1 gap-6 xl:grid-cols-3">
           <InsightCard
             Icon={Sparkles}
             tone="blue"
             title="Best Performance"
-            message="Web Development showing highest progress at 78% completion. Keep up the great work!"
+            message={topCourse ? `${topCourse.name} is currently your strongest track at ${topCourse.pct}% completion.` : "No progress data available yet."}
           />
           <InsightCard
             Icon={AlertCircle}
             tone="orange"
             title="Needs Attention"
-            message="Operating Systems needs more focus — only 30% complete with deadline approaching."
+            message={weakestCourse ? `${weakestCourse.name} has the lowest completion rate right now at ${weakestCourse.pct}%.` : "No low-progress items detected."}
           />
           <InsightCard
             Icon={CheckCircle2}
             tone="green"
             title="Streak Bonus"
-            message="7-day study streak! You’re building excellent consistency. Aim for 14 days next!"
+            message={`${streakKpi} active. Keep that consistency going into next week.`}
           />
         </div>
       </div>
