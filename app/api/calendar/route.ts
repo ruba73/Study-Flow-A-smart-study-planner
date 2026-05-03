@@ -38,6 +38,7 @@ export async function GET() {
     prisma.task.findMany({
       where: {
         userId,
+        completed: false,
         OR: [{ dueDate: { not: null } }, { scheduledDate: { not: null } }],
       },
       select: {
@@ -52,7 +53,7 @@ export async function GET() {
       },
     }),
     prisma.studySession.findMany({
-      where: { userId },
+      where: { userId, status: { not: "completed" } },
       select: {
         id: true,
         title: true,

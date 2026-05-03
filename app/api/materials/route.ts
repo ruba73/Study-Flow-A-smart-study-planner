@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getSessionUserId } from "@/lib/session";
+import JSZip from "jszip";
 import mammoth from "mammoth";
 
 export const runtime = "nodejs";
@@ -13,9 +14,10 @@ const supportedMimeTypes = new Set([
   "text/markdown",
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 ]);
 
-const supportedExtensions = [".pdf", ".txt", ".md", ".doc", ".docx"];
+const supportedExtensions = [".pdf", ".txt", ".md", ".doc", ".docx", ".pptx"];
 
 function isSupportedMaterialFile(file: File) {
   const fileName = file.name.toLowerCase();
@@ -29,11 +31,48 @@ function normalizeMimeType(file: File) {
   if (fileName.endsWith(".md")) return "text/markdown";
   if (fileName.endsWith(".doc")) return "application/msword";
   if (fileName.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (fileName.endsWith(".pptx")) return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
   return "application/pdf";
 }
 
 function normalizeExtractedText(text: string) {
   return text.replace(/\r\n/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function decodeXmlText(value: string) {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&apos;/g, "'");
+}
+
+function slideNumber(path: string) {
+  const match = path.match(/slide(\d+)\.xml$/);
+  return match ? Number(match[1]) : 0;
+}
+
+async function extractPptxText(buffer: Buffer) {
+  const zip = await JSZip.loadAsync(buffer);
+  const slideFiles = Object.values(zip.files)
+    .filter((entry) => /^ppt\/slides\/slide\d+\.xml$/.test(entry.name))
+    .sort((a, b) => slideNumber(a.name) - slideNumber(b.name));
+
+  const slides = await Promise.all(
+    slideFiles.map(async (entry) => {
+      const xml = await entry.async("text");
+      const textRuns = Array.from(xml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g))
+        .map((match) => decodeXmlText(match[1] ?? "").trim())
+        .filter(Boolean);
+      return textRuns.join("\n");
+    })
+  );
+
+  return slides
+    .map((slideText, index) => slideText ? `Slide ${index + 1}\n${slideText}` : "")
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 async function extractMaterialText(file: File, mimeType: string) {
@@ -53,11 +92,16 @@ async function extractMaterialText(file: File, mimeType: string) {
     ) {
       const result = await mammoth.extractRawText({ buffer: Buffer.from(await file.arrayBuffer()) });
       text = result.value;
+    } else if (
+      mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
+      fileName.endsWith(".pptx")
+    ) {
+      text = await extractPptxText(Buffer.from(await file.arrayBuffer()));
     } else {
       return {
         extractedText: "",
         extractionStatus: "unsupported",
-        extractionError: "Text extraction is only available for PDF, TXT, Markdown, and DOCX files.",
+        extractionError: "Text extraction is only available for PDF, TXT, Markdown, DOCX, and PPTX files.",
       };
     }
 
@@ -147,7 +191,7 @@ export async function POST(request: NextRequest) {
 
   const unsupportedFile = files.find((file) => !isSupportedMaterialFile(file));
   if (unsupportedFile) {
-    return NextResponse.json({ message: "Upload a PDF, text, Markdown, DOC, or DOCX file" }, { status: 400 });
+    return NextResponse.json({ message: "Upload a PDF, text, Markdown, DOC, DOCX, or PPTX file" }, { status: 400 });
   }
 
   const goal = await prisma.goal.findFirst({
@@ -168,7 +212,7 @@ export async function POST(request: NextRequest) {
       data: {
         userId,
         goalId,
-        title: file.name.replace(/\.(pdf|txt|md|docx?)$/i, ""),
+        title: file.name.replace(/\.(pdf|txt|md|docx?|pptx)$/i, ""),
         fileName: file.name,
         mimeType,
         sizeBytes: file.size,

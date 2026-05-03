@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { generateOpenRouterJson } from "@/lib/openrouter";
+import { generateAiJson } from "@/lib/ai-provider";
+import { createCompletionTestIfReady, publicExamGenerationMessage } from "@/lib/completion-exam";
 import { getSessionUserId } from "@/lib/session";
 
 interface AiGeneratedTask {
@@ -74,6 +75,14 @@ function formatTimeFromMinutes(totalMinutes: number) {
 function timeToMinutes(time: string) {
   const { hour, minute } = parseTime(time);
   return hour * 60 + minute;
+}
+
+function nextActiveDateAfter(date: Date, activeWeekdays: Set<number>, maxDate: Date) {
+  let next = addDays(startOfDay(date), 1);
+  while (next <= maxDate && !activeWeekdays.has(weekdayIndex(next))) {
+    next = addDays(next, 1);
+  }
+  return next <= maxDate ? next : startOfDay(maxDate);
 }
 
 function countActiveDaysThrough(startDate: Date, endDate: Date, activeWeekdays: Set<number>) {
@@ -211,16 +220,122 @@ function normalizeInteger(value: unknown, fallback: number, min: number, max: nu
   return Math.max(min, Math.min(max, safeValue));
 }
 
-function parseAiPlan(text: string): AiPlanResponse {
-  const parsed = JSON.parse(text) as AiPlanResponse;
+function readStringField(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function readStringArrayField(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      const items = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim());
+      if (items.length > 0) return items;
+    }
+    if (typeof value === "string" && value.trim()) return [value.trim()];
+  }
+  return [];
+}
+
+function normalizeGeneratedTask(task: unknown): AiGeneratedTask | null {
+  const record = readMetadata(task);
+  const title = readStringField(record, ["title", "taskTitle", "name"]);
+  const description = readStringField(record, ["description", "details", "summary", "taskDescription"]);
+  const estimatedDuration = normalizeInteger(record.estimatedDuration ?? record.duration ?? record.minutes, 75, 30, 180);
+
+  if (!title || !description) return null;
+
   return {
-    tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
+    title,
+    description,
+    studyFocus: readStringArrayField(record, ["studyFocus", "focus", "topics", "objectives"]),
+    materialReference: readStringField(record, ["materialReference", "material", "source", "reference"]),
+    aiQuestion: readStringField(record, ["aiQuestion", "question", "prompt"]),
+    estimatedDuration,
+    difficulty: normalizeInteger(record.difficulty, 3, 1, 5),
+    scheduledDate: readStringField(record, ["scheduledDate", "date"]),
+    scheduledTime: readStringField(record, ["scheduledTime", "time"]),
+    dueDate: readStringField(record, ["dueDate", "deadline"]),
+    source: readStringField(record, ["source", "materialReference", "material", "reference"]),
   };
 }
 
-function classifyOpenRouterError(error: unknown) {
-  const message = error instanceof Error ? error.message : "OpenRouter request failed";
-  return { code: "openrouter_error", message };
+function parseAiPlan(text: string): AiPlanResponse {
+  const parsed = JSON.parse(text) as Record<string, unknown>;
+  const rawTasks = Array.isArray(parsed.tasks)
+    ? parsed.tasks
+    : Array.isArray(parsed.sessions)
+      ? parsed.sessions
+      : Array.isArray(parsed.studyTasks)
+        ? parsed.studyTasks
+        : Array.isArray(parsed.plan)
+          ? parsed.plan
+          : [];
+  return {
+    tasks: rawTasks.map(normalizeGeneratedTask).filter((task): task is AiGeneratedTask => Boolean(task)),
+  };
+}
+
+function isUsableGeneratedTask(task: AiGeneratedTask) {
+  return Boolean(
+    typeof task.title === "string" &&
+      task.title.trim() &&
+      typeof task.description === "string" &&
+      task.description.trim() &&
+      typeof task.estimatedDuration === "number"
+  );
+}
+
+function planTaskSchema() {
+  return {
+    type: "object",
+    properties: {
+      tasks: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            description: { type: "string" },
+            studyFocus: {
+              type: "array",
+              items: { type: "string" },
+            },
+            materialReference: { type: "string" },
+            aiQuestion: { type: "string" },
+            estimatedDuration: { type: "integer" },
+            difficulty: { type: "integer" },
+            scheduledDate: { type: "string" },
+            scheduledTime: { type: "string" },
+            dueDate: { type: "string" },
+            source: { type: "string" },
+          },
+          required: [
+            "title",
+            "description",
+            "studyFocus",
+            "materialReference",
+            "aiQuestion",
+            "estimatedDuration",
+            "difficulty",
+            "scheduledDate",
+            "scheduledTime",
+            "dueDate",
+            "source",
+          ],
+        },
+      },
+    },
+    required: ["tasks"],
+  };
+}
+
+function classifyAiProviderError(error: unknown) {
+  const message = error instanceof Error ? error.message : "AI provider request failed";
+  return { code: "ai_provider_error", message };
 }
 
 function readMetadata(metadata: unknown) {
@@ -229,8 +344,8 @@ function readMetadata(metadata: unknown) {
 }
 
 function buildMaterialSummary(materials: PlanningMaterial[]) {
-  const maxTotalChars = 60_000;
-  const maxPerMaterialChars = 25_000;
+  const maxTotalChars = 6_000;
+  const maxPerMaterialChars = 2_000;
   let remainingChars = maxTotalChars;
 
   return materials
@@ -345,13 +460,7 @@ export async function POST(request: NextRequest) {
 
   let aiError: { code: string; message: string } | null = null;
   let generatedTasks: AiGeneratedTask[] = [];
-
-  try {
-    const responseText = await generateOpenRouterJson({
-      systemInstruction:
-        "You are an academic study planner. Break a subject into concrete study tasks based on the extracted chapter/material text. Return only valid JSON matching the schema.",
-      schemaName: "study_task_plan",
-      prompt: `Create a task plan for this subject.
+  const taskPrompt = `Create a task plan for this subject.
 
 Subject: ${goal.title}
 Description: ${goal.description ?? "No description provided"}
@@ -368,70 +477,53 @@ Today: ${formatLocalDate(today)}
 Known materials:
 ${materialSummary || "- No materials have been uploaded or suggested yet."}
 
-Generate between 4 and 12 study tasks using the extracted material text when available. Do not create generic tasks like "study chapter"; make each task about concrete concepts, sections, examples, slides, examples, equations, or practice work from the materials.
+Generate between 4 and 8 study tasks using the extracted material text when available. Do not create generic tasks like "study chapter"; make each task about concrete concepts, sections, examples, slides, equations, or practice work from the materials.
 
 Every task must be one clickable session card for the student. For each task:
 - title: short and specific.
-- description: 2-4 sentences explaining exactly what to study and what output to produce by the end of the session.
-- studyFocus: 3-6 concrete bullets from the uploaded/suggested material.
+- description: 1-2 sentences explaining exactly what to study and what output to produce by the end of the session.
+- studyFocus: 2-4 concrete bullets from the uploaded/suggested material.
 - materialReference: name the source material and chapter/section/slide/topic when inferable.
 - aiQuestion: a concise question the student can send to the materials AI chat for deeper help.
 - estimatedDuration: choose a realistic session length based on the material's complexity and workload. Use shorter sessions for definitions/review, medium sessions for concept learning, and longer sessions for practice, diagrams, coding, or synthesis. Vary session lengths naturally; do not make every session the same length.
 
-Distribute the tasks so the available uploaded material is covered before the deadline. Schedule every task on or before the deadline.`,
-      schema: {
-        type: "object",
-        properties: {
-          tasks: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                title: { type: "string" },
-                description: { type: "string" },
-                studyFocus: {
-                  type: "array",
-                  items: { type: "string" },
-                },
-                materialReference: { type: "string" },
-                aiQuestion: { type: "string" },
-                estimatedDuration: { type: "integer" },
-                difficulty: { type: "integer" },
-                scheduledDate: { type: "string" },
-                scheduledTime: { type: "string" },
-                dueDate: { type: "string" },
-                source: { type: "string" },
-              },
-              required: [
-                "title",
-                "description",
-                "studyFocus",
-                "materialReference",
-                "aiQuestion",
-                "estimatedDuration",
-                "difficulty",
-                "scheduledDate",
-                "scheduledTime",
-                "dueDate",
-                "source",
-              ],
-            },
-          },
-        },
-        required: ["tasks"],
-      },
-    });
+Distribute the tasks so the available uploaded material is covered before the deadline. Schedule every task on or before the deadline.`;
 
-    generatedTasks = parseAiPlan(responseText).tasks.slice(0, 12);
-  } catch (error) {
-    aiError = classifyOpenRouterError(error);
+  for (let attempt = 0; attempt < 3 && generatedTasks.length === 0; attempt += 1) {
+    try {
+      const responseText = await generateAiJson({
+        systemInstruction:
+          attempt === 0
+            ? "You are an academic study planner. Break a subject into concrete study tasks based on the extracted chapter/material text. Return only valid JSON matching the schema."
+            : "Repair the study task plan. Return JSON with a non-empty tasks array only. Every task must be concrete, material-based, and valid.",
+        schemaName: "study_task_plan",
+        prompt:
+          attempt === 0
+            ? taskPrompt
+            : `${taskPrompt}
+
+The previous response had no usable tasks. Return 4 to 6 valid tasks now. Each task must include all required fields and estimatedDuration must be a number.`,
+        schema: planTaskSchema(),
+        maxTokens: 2400,
+        temperature: 0.1,
+        timeoutMs: 90_000,
+        requestAttempts: 2,
+      });
+
+      generatedTasks = parseAiPlan(responseText).tasks.filter(isUsableGeneratedTask).slice(0, 8);
+    } catch (error) {
+      aiError = classifyAiProviderError(error);
+    }
   }
 
   if (generatedTasks.length === 0) {
     return NextResponse.json(
       {
-        message: "The AI provider could not generate tasks. No fallback tasks were created.",
+        message: aiError?.message
+          ? `AI provider could not generate a valid AI task plan: ${aiError.message}`
+          : "AI provider did not return any usable AI-generated tasks.",
         aiError,
+        sessions: [],
         suggestions: [],
       },
       { status: 502 }
@@ -498,7 +590,7 @@ Distribute the tasks so the available uploaded material is covered before the de
       goalId: goal.id,
       isManual: false,
       completed: false,
-      type: "study",
+      type: { in: ["study", "quiz"] },
     },
   });
 
@@ -565,7 +657,6 @@ Distribute the tasks so the available uploaded material is covered before the de
         isManual: false,
       },
     });
-
     sessions.push({
       ...session,
       task: {
@@ -578,5 +669,50 @@ Distribute the tasks so the available uploaded material is covered before the de
     });
   }
 
-  return NextResponse.json({ sessions, tasksCreated: generatedTasks.length, fallback: false, aiError: null });
+  let generatedTestTaskId: string | null = null;
+  const lastScheduledTask = scheduledTasks[scheduledTasks.length - 1];
+  const examDate = lastScheduledTask
+    ? nextActiveDateAfter(lastScheduledTask.scheduledDate, activeWeekdays, deadline)
+    : deadline;
+
+  try {
+    generatedTestTaskId = await createCompletionTestIfReady(userId, goal.id, examDate);
+    if (!generatedTestTaskId) {
+      throw new Error("AI exam was not created because an active or completed exam already exists.");
+    }
+  } catch (error) {
+    await prisma.task.deleteMany({
+      where: {
+        userId,
+        goalId: goal.id,
+        isManual: false,
+        completed: false,
+        type: { in: ["study", "quiz"] },
+      },
+    });
+    await prisma.studySession.deleteMany({
+      where: { userId, goalId: goal.id, status: "scheduled" },
+    });
+
+    return NextResponse.json(
+      {
+        message: publicExamGenerationMessage(error instanceof Error ? error.message : null) ?? "AI exam could not be generated.",
+        sessions: [],
+        suggestions: [],
+        tasksCreated: 0,
+        generatedTestTaskId: null,
+      },
+      { status: 502 }
+    );
+  }
+
+  return NextResponse.json({
+    sessions,
+    tasksCreated: generatedTasks.length,
+    fallback: false,
+    aiError,
+    generatedTestTaskId,
+    examWarning: null,
+    examWarnings: [],
+  });
 }

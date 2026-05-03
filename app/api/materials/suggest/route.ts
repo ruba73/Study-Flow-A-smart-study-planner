@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { generateOpenRouterJson } from "@/lib/openrouter";
+import { generateAiJson } from "@/lib/ai-provider";
 import { getSessionUserId } from "@/lib/session";
 
 interface SuggestedMaterial {
@@ -45,10 +45,6 @@ function fallbackSuggestions(title: string): SuggestedMaterial[] {
   ];
 }
 
-function isOpenRouterQuotaError(error: unknown) {
-  return error instanceof Error && /quota|rate-limit|rate limits|429|credit|billing/i.test(error.message);
-}
-
 export async function POST(request: NextRequest) {
   const userId = await getSessionUserId();
   if (!userId) {
@@ -81,17 +77,17 @@ export async function POST(request: NextRequest) {
   let aiError: string | null = null;
 
   try {
-    const responseText = await generateOpenRouterJson({
+    const responseText = await generateAiJson({
       systemInstruction:
-        "Suggest high-quality study materials for a student. Prefer official documentation, university notes, reputable tutorials, open textbooks, and practice resources. Return only valid JSON.",
+        "Suggest high-quality study materials for a student. You are running locally through AI provider and cannot browse the web. Prefer stable official websites, reputable open textbook sites, university resources, and search URLs that help the student find current materials. Return only valid JSON.",
       schemaName: "material_suggestions",
-      plugins: [{ id: "web" }, { id: "response-healing" }],
       prompt: `Subject: ${goal.title}
 Description: ${goal.description ?? "No description provided"}
 Deadline: ${goal.targetDate.toISOString().split("T")[0]}
 Estimated hours: ${goal.estimatedTotalHours}
 
-Find 5 useful study materials. Include a title, URL, short type label, and reason each helps.`,
+Suggest 5 useful study materials. Include a title, URL, short type label, and reason each helps.
+If you are not certain a direct URL exists, use a Google search URL for that exact resource type instead of inventing a URL.`,
       schema: {
         type: "object",
         properties: {
@@ -111,16 +107,14 @@ Find 5 useful study materials. Include a title, URL, short type label, and reaso
         },
         required: ["materials"],
       },
+      maxTokens: 700,
+      requestAttempts: 1,
     });
 
     suggestions = parseSuggestions(responseText).materials;
   } catch (error) {
     fallback = true;
-    aiError = isOpenRouterQuotaError(error)
-      ? "OpenRouter quota or credits are currently unavailable for this key. Local search suggestions were created instead."
-      : error instanceof Error
-        ? error.message
-        : "OpenRouter could not suggest materials.";
+    aiError = error instanceof Error ? error.message : "Local AI could not suggest materials.";
     suggestions = fallbackSuggestions(goal.title);
   }
 

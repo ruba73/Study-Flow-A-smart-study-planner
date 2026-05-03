@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getSessionUserId } from "@/lib/session";
-import { generateOpenRouterJson } from "@/lib/openrouter";
+import { generateAiJson } from "@/lib/ai-provider";
 
 function startOfDay(date = new Date()) {
   const next = new Date(date);
@@ -132,7 +132,7 @@ async function suggestPlanFixes(args: {
   const fallback = buildFallbackPlanFixes(args);
 
   try {
-    const responseText = await generateOpenRouterJson({
+    const responseText = await generateAiJson({
       systemInstruction:
         "You are an academic scheduling assistant. Suggest practical configuration changes that help a student complete unscheduled study work before deadlines. Return only valid JSON.",
       schemaName: "study_plan_fixes",
@@ -195,11 +195,45 @@ function countActiveDaysThrough(startDate: Date, endDate: Date, activeWeekdays: 
   return Math.max(1, count);
 }
 
+async function syncGoalProgress(userId: string) {
+  const goals = await prisma.goal.findMany({
+    where: { userId, status: { not: "completed" } },
+    select: { id: true },
+  });
+
+  await Promise.all(
+    goals.map(async (goal) => {
+      const [totalTasks, completedTasks, completedDuration, openExamTasks] = await Promise.all([
+        prisma.task.count({ where: { userId, goalId: goal.id, type: { not: "quiz" } } }),
+        prisma.task.count({ where: { userId, goalId: goal.id, completed: true, type: { not: "quiz" } } }),
+        prisma.task.aggregate({
+          where: { userId, goalId: goal.id, completed: true, type: { not: "quiz" } },
+          _sum: { estimatedDuration: true },
+        }),
+        prisma.task.count({ where: { userId, goalId: goal.id, completed: false, type: "quiz" } }),
+      ]);
+
+      const learningProgress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+      const progress = learningProgress >= 100 ? 95 : learningProgress;
+      await prisma.goal.updateMany({
+        where: { id: goal.id, userId, status: { not: "completed" } },
+        data: {
+          progress,
+          actualHoursSpent: Math.round(((completedDuration._sum.estimatedDuration ?? 0) / 60) * 10) / 10,
+          status: progress > 0 || openExamTasks > 0 ? "in-progress" : "not-started",
+        },
+      });
+    })
+  );
+}
+
 export async function GET() {
   const userId = await getSessionUserId();
   if (!userId) {
     return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
   }
+
+  await syncGoalProgress(userId);
 
   const [user, goals, sessions] = await Promise.all([
     prisma.user.findUnique({
@@ -374,7 +408,7 @@ export async function POST(request: NextRequest) {
       isManual: false,
       completed: false,
       scheduledDate: { gte: today },
-      type: "study",
+      type: { in: ["study", "quiz"] },
     },
   });
 
@@ -390,7 +424,6 @@ export async function POST(request: NextRequest) {
     plannedDuration: number;
     status: string;
   }> = [];
-
   for (let date = today; date <= planningEndDate; date = addDays(date, 1)) {
     if (!activeWeekdays.has(weekdayIndex(date))) continue;
 
@@ -534,5 +567,5 @@ export async function POST(request: NextRequest) {
     },
   });
 
-  return NextResponse.json({ sessions });
+  return NextResponse.json({ sessions, examWarnings: [] });
 }
