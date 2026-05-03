@@ -258,6 +258,15 @@ export function Header({
     setNotifications((current) => current.filter((item) => item.id !== id));
   }
 
+  async function markRead(id: string) {
+    setNotifications((current) => current.map((item) => (item.id === id ? { ...item, isRead: true } : item)));
+    await fetch("/api/notifications", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "mark-read", id }),
+    });
+  }
+
   async function handleLogout() {
     setMenuOpen(false);
     await signOut({ callbackUrl: "/Auth?mode=login" });
@@ -437,25 +446,53 @@ export function Header({
                   ) : (
                     notifications.map((notification) => {
                       const { Icon, bg, fg } = notifIcon(notification.type);
-                      return (
-                        <div
-                          key={notification.id}
-                          className={`flex gap-3 border-b border-gray-100 px-4 py-3 transition hover:bg-gray-50 ${notification.isRead ? "opacity-80" : ""}`}
-                        >
-                          <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg ${bg}`}>
-                            <Icon className={`h-5 w-5 ${fg}`} />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="text-sm font-semibold text-gray-900">{notification.title}</div>
-                              <button onClick={() => dismiss(notification.id)} className="rounded-md p-1 hover:bg-gray-100" aria-label="Dismiss">
-                                <X className="h-3.5 w-3.5 text-gray-500" />
-                              </button>
+                      const detail = (
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                              {!notification.isRead && <span className="h-2 w-2 rounded-full bg-blue-600" />}
+                              {notification.title}
                             </div>
-                            <div className="truncate text-sm text-gray-600">{notification.message}</div>
-                            <div className="mt-1 text-xs text-gray-400">{formatRelativeTime(notification.createdAt)}</div>
+                            <button
+                              onClick={(event) => {
+                                event.preventDefault();
+                                dismiss(notification.id);
+                              }}
+                              className="rounded-md p-1 hover:bg-gray-100"
+                              aria-label="Dismiss"
+                            >
+                              <X className="h-3.5 w-3.5 text-gray-500" />
+                            </button>
                           </div>
+                          <div className="truncate text-sm text-gray-600">{notification.message}</div>
+                          <div className="mt-1 text-xs text-gray-400">{formatRelativeTime(notification.createdAt)}</div>
                         </div>
+                      );
+                      const itemClass = `flex gap-3 border-b border-gray-100 px-4 py-3 text-left transition hover:bg-gray-50 ${notification.isRead ? "opacity-80" : ""}`;
+                      return (
+                        notification.actionUrl ? (
+                          <Link
+                            key={notification.id}
+                            href={notification.actionUrl}
+                            onClick={() => {
+                              markRead(notification.id);
+                              setNotifOpen(false);
+                            }}
+                            className={itemClass}
+                          >
+                            <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg ${bg}`}>
+                              <Icon className={`h-5 w-5 ${fg}`} />
+                            </div>
+                            {detail}
+                          </Link>
+                        ) : (
+                          <button key={notification.id} onClick={() => markRead(notification.id)} className={`w-full ${itemClass}`}>
+                            <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg ${bg}`}>
+                              <Icon className={`h-5 w-5 ${fg}`} />
+                            </div>
+                            {detail}
+                          </button>
+                        )
                       );
                     })
                   )}

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Clock, Sparkles, Trophy, X } from "lucide-react";
 
@@ -12,6 +13,7 @@ interface NotificationItem {
   message: string;
   createdAt: string;
   isRead: boolean;
+  actionUrl?: string | null;
 }
 
 function notifIcon(type: NotificationType) {
@@ -77,6 +79,15 @@ export default function NotificationsPage() {
     setItems((current) => current.filter((item) => item.id !== id));
   }
 
+  async function markRead(id: string) {
+    setItems((current) => current.map((item) => (item.id === id ? { ...item, isRead: true } : item)));
+    await fetch("/api/notifications", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "mark-read", id }),
+    });
+  }
+
   return (
     <div className="min-h-full bg-gray-50">
       <div className="p-4 sm:p-4 lg:p-4">
@@ -103,8 +114,8 @@ export default function NotificationsPage() {
             ) : (
               items.map((item) => {
                 const { Icon, bg, fg } = notifIcon(item.type);
-                return (
-                  <div key={item.id} className="flex gap-4 border-b border-gray-100 px-5 py-4 hover:bg-gray-50">
+                const content = (
+                  <>
                     <div className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl ${bg}`}>
                       <Icon className={`h-5 w-5 ${fg}`} />
                     </div>
@@ -112,17 +123,47 @@ export default function NotificationsPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <div className="font-semibold text-gray-900">{item.title}</div>
+                          <div className="flex items-center gap-2 font-semibold text-gray-900">
+                            {!item.isRead && <span className="h-2 w-2 rounded-full bg-blue-600" />}
+                            {item.title}
+                          </div>
                           <div className="text-sm text-gray-600">{item.message}</div>
                           <div className="mt-1 text-xs text-gray-400">{formatRelativeTime(item.createdAt)}</div>
                         </div>
 
-                        <button onClick={() => dismiss(item.id)} className="rounded-lg p-2 hover:bg-gray-100" aria-label="Dismiss">
+                        <button
+                          onClick={(event) => {
+                            event.preventDefault();
+                            dismiss(item.id);
+                          }}
+                          className="rounded-lg p-2 hover:bg-gray-100"
+                          aria-label="Dismiss"
+                        >
                           <X className="h-4 w-4 text-gray-500" />
                         </button>
                       </div>
                     </div>
-                  </div>
+                  </>
+                );
+                return (
+                  item.actionUrl ? (
+                    <Link
+                      key={item.id}
+                      href={item.actionUrl}
+                      onClick={() => markRead(item.id)}
+                      className={`flex gap-4 border-b border-gray-100 px-5 py-4 hover:bg-gray-50 ${item.isRead ? "opacity-75" : ""}`}
+                    >
+                      {content}
+                    </Link>
+                  ) : (
+                    <button
+                      key={item.id}
+                      onClick={() => markRead(item.id)}
+                      className={`flex w-full gap-4 border-b border-gray-100 px-5 py-4 text-left hover:bg-gray-50 ${item.isRead ? "opacity-75" : ""}`}
+                    >
+                      {content}
+                    </button>
+                  )
                 );
               })
             )}

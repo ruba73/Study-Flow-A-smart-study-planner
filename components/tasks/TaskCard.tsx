@@ -1,4 +1,4 @@
-import { Calendar, Clock, Edit, Trash2, Check } from 'lucide-react';
+import { Calendar, Clock, Edit, Trash2, Check, ClipboardList } from 'lucide-react';
 import { Task } from '@/app/(dashboard)/tasks/page';
 
 interface TaskCardProps {
@@ -6,9 +6,11 @@ interface TaskCardProps {
   onToggle: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
+  pending?: boolean;
 }
 
-export function TaskCard({ task, onToggle, onEdit, onDelete }: TaskCardProps) {
+export function TaskCard({ task, onToggle, onEdit, onDelete, pending = false }: TaskCardProps) {
+  const isOpenTest = Boolean(task.completionTest && !task.completed);
   const priorityColors = {
     High: 'bg-red-100 text-red-700',
     Medium: 'bg-yellow-100 text-yellow-700',
@@ -24,7 +26,7 @@ export function TaskCard({ task, onToggle, onEdit, onDelete }: TaskCardProps) {
   };
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
+    const date = new Date(`${dateString}T00:00:00`);
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
@@ -37,30 +39,67 @@ export function TaskCard({ task, onToggle, onEdit, onDelete }: TaskCardProps) {
   };
 
   return (
-
-  <div className="bg-white rounded-xl p-4 sm:p-5 border border-gray-200 hover:shadow-md transition-shadow">
+  <div
+    onClick={() => {
+      if (!pending) onToggle();
+    }}
+    className={`bg-white rounded-xl p-4 sm:p-5 border transition-all duration-300 ease-out ${
+      task.completed ? 'border-green-200 bg-green-50/30 shadow-sm' : 'border-gray-200 hover:shadow-md'
+    } ${pending ? 'cursor-wait opacity-80' : task.completed ? 'cursor-default' : 'cursor-pointer'} ${
+      pending ? 'scale-[0.995]' : 'scale-100'
+    }`}
+    role="button"
+    tabIndex={0}
+    onKeyDown={(event) => {
+      if (!pending && (event.key === 'Enter' || event.key === ' ')) {
+        event.preventDefault();
+        onToggle();
+      }
+    }}
+  >
     <div className="flex flex-col sm:flex-row gap-4">
 
       {/* Top Section */}
       <div className="flex gap-4 flex-1">
         {/* Checkbox */}
         <button
-          onClick={onToggle}
-          className={`mt-1 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-            task.completed
-              ? 'bg-green-500 border-green-500'
-              : 'border-gray-300 hover:border-blue-500'
-          }`}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (!pending) onToggle();
+          }}
+          disabled={pending}
+          className={`mt-1 flex items-center justify-center transition-all duration-300 ease-out ${
+            isOpenTest
+              ? 'h-9 w-9 rounded-lg bg-purple-50 text-purple-700 hover:bg-purple-100'
+              : `h-7 w-7 rounded border-2 shadow-sm ${
+                  task.completed
+                    ? 'scale-105 bg-green-500 border-green-500'
+                    : pending
+                      ? 'border-blue-400 bg-blue-50'
+                      : 'border-gray-300 bg-white hover:border-blue-500 hover:bg-blue-50'
+                }`
+          } ${pending ? 'animate-pulse' : ''}`}
+          aria-label={isOpenTest ? 'Start completion test' : task.completed ? 'Mark task incomplete' : 'Mark task complete'}
         >
-          {task.completed && <Check className="w-3.5 h-3.5 text-white" />}
+          {isOpenTest ? (
+            <ClipboardList className="h-4 w-4 transition-transform duration-200" />
+          ) : (
+            <Check
+              className={`w-3.5 h-3.5 text-white transition-all duration-200 ease-out ${
+                task.completed ? 'scale-100 opacity-100' : 'scale-50 opacity-0'
+              }`}
+            />
+          )}
         </button>
 
         {/* Content */}
         <div className="flex-1 min-w-0">
-          <h3 className={`font-semibold text-gray-900 mb-1 ${task.completed ? 'line-through text-gray-500' : ''}`}>
+          <h3 className={`font-semibold mb-1 transition-all duration-300 ${
+            task.completed ? 'text-gray-500 line-through decoration-green-600 decoration-2' : 'text-gray-900'
+          }`}>
             {task.title}
           </h3>
-          <p className="text-sm text-gray-600 mb-3">{task.description}</p>
+          <p className={`text-sm mb-3 transition-colors duration-300 ${task.completed ? 'text-gray-500' : 'text-gray-600'}`}>{task.description}</p>
 
           {/* Badges and Info */}
           <div className="flex flex-wrap items-center gap-2">
@@ -86,7 +125,10 @@ export function TaskCard({ task, onToggle, onEdit, onDelete }: TaskCardProps) {
           <div className="flex gap-2 sm:flex-col sm:items-end">
             {onEdit && (
               <button
-                onClick={onEdit}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onEdit();
+                }}
                 className="p-2 hover:bg-blue-50 text-blue-600 rounded transition-colors"
               >
                 <Edit className="w-4 h-4" />
@@ -94,7 +136,10 @@ export function TaskCard({ task, onToggle, onEdit, onDelete }: TaskCardProps) {
             )}
             {onDelete && (
               <button
-                onClick={onDelete}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDelete();
+                }}
                 className="p-2 hover:bg-red-50 text-red-600 rounded transition-colors"
               >
                 <Trash2 className="w-4 h-4" />

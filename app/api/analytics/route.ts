@@ -27,6 +27,26 @@ function addDays(date: Date, days: number) {
   return next;
 }
 
+function metadataObject(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function numberValue(value: unknown, fallback = 0) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function stringValue(value: unknown, fallback = "") {
+  return typeof value === "string" ? value : fallback;
+}
+
+function dateValue(value: unknown) {
+  if (typeof value !== "string") return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function calculateTaskStreak(
   tasks: Array<{ completed: boolean; completedAt: Date | null; scheduledDate: Date | null }>,
   progressRows: Array<{ date: Date; timeStudied: number }>
@@ -152,8 +172,42 @@ export async function GET() {
     totalStudyTime: number;
   };
 
+  const archivedSnapshots = archivedCourseRows.map((row) => metadataObject(row.metadata));
+  const archivedProgressRows = archivedSnapshots.flatMap((metadata) => {
+    const rows = Array.isArray(metadata.progressHistory) ? metadata.progressHistory : [];
+    return rows.flatMap((row) => {
+      const item = metadataObject(row);
+      const date = dateValue(item.date);
+      if (!date) return [];
+      return [{
+        date,
+        week: numberValue(item.week, 0),
+        year: numberValue(item.year, date.getFullYear()),
+        timeStudied: numberValue(item.timeStudied),
+        plannedTime: numberValue(item.plannedTime),
+      }];
+    });
+  });
+  const archivedTaskRows = archivedSnapshots.flatMap((metadata) => {
+    const rows = Array.isArray(metadata.taskHistory) ? metadata.taskHistory : [];
+    const goalId = stringValue(metadata.goalId, "archived");
+    return rows.map((row) => {
+      const item = metadataObject(row);
+      return {
+        goalId,
+        type: stringValue(item.type, "study"),
+        estimatedDuration: numberValue(item.estimatedDuration),
+        completed: Boolean(item.completed),
+        completedAt: dateValue(item.completedAt),
+        scheduledDate: dateValue(item.scheduledDate),
+      };
+    });
+  });
+  const allProgressRows = [...progressRows, ...archivedProgressRows];
+  const allTaskRows = [...taskRows, ...archivedTaskRows];
+
   const weeklyStudyMap = new Map<string, { actual: number; target: number }>();
-  for (const row of progressRows) {
+  for (const row of allProgressRows) {
     const key = `${row.year}-W${row.week}`;
     const current = weeklyStudyMap.get(key) ?? { actual: 0, target: 0 };
     current.actual += Math.round((row.timeStudied / 60) * 10) / 10;
@@ -173,8 +227,8 @@ export async function GET() {
     const day = new Date(sixDaysAgo);
     day.setDate(sixDaysAgo.getDate() + index);
     const dayKey = dateKey(day);
-    const matchingRows = progressRows.filter((row) => dateKey(row.date) === dayKey);
-    const taskMinutes = taskRows
+    const matchingRows = allProgressRows.filter((row) => dateKey(row.date) === dayKey);
+    const taskMinutes = allTaskRows
       .filter((task) => task.completed && task.completedAt && dateKey(task.completedAt) === dayKey)
       .reduce((sum, task) => sum + task.estimatedDuration, 0);
     const progressMinutes = matchingRows.reduce((sum, row) => sum + row.timeStudied, 0);
@@ -186,7 +240,7 @@ export async function GET() {
   });
 
   const sessionTypeMap = new Map<string, number>();
-  for (const task of taskRows.filter((item) => item.completed)) {
+  for (const task of allTaskRows.filter((item) => item.completed)) {
     const key = task.type.charAt(0).toUpperCase() + task.type.slice(1);
     sessionTypeMap.set(key, (sessionTypeMap.get(key) ?? 0) + 1);
   }
@@ -205,18 +259,12 @@ export async function GET() {
   }));
 
   const courseColors = ["#3B82F6", "#16A34A", "#7C3AED", "#F97316", "#DC2626", "#4F46E5"];
-  const archivedCourses = archivedCourseRows.map((row) => {
-    const metadata = row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
-      ? (row.metadata as Record<string, unknown>)
-      : {};
-
-    return {
-      id: typeof metadata.goalId === "string" ? metadata.goalId : `archived-${String(metadata.title ?? "Course")}`,
-      title: typeof metadata.title === "string" ? metadata.title : "Deleted subject",
-      studiedHours: typeof metadata.studiedHours === "number" ? metadata.studiedHours : 0,
-      progress: typeof metadata.progress === "number" ? metadata.progress : 0,
-    };
-  });
+  const archivedCourses = archivedSnapshots.map((metadata) => ({
+    id: stringValue(metadata.goalId, `archived-${String(metadata.title ?? "Course")}`),
+    title: stringValue(metadata.title, "Deleted subject"),
+    studiedHours: numberValue(metadata.studiedHours),
+    progress: numberValue(metadata.progress),
+  }));
 
   const courseTimeMap = new Map<string, { name: string; value: number; progress: number }>();
   for (const goal of goalRows) {
@@ -280,16 +328,16 @@ export async function GET() {
         ).toFixed(1)
       : "0.0";
 
-  const sessionsCompleted = taskRows.filter((task) => task.completed).length;
+  const sessionsCompleted = allTaskRows.filter((task) => task.completed).length;
   const completedGoals = courseProgress.filter((goal) => goal.pct >= 100).length;
-  const currentStreak = calculateTaskStreak(taskRows, progressRows);
+  const currentStreak = calculateTaskStreak(allTaskRows, allProgressRows);
 
   return NextResponse.json({
     kpis: [
       { label: "Study Streak", value: `${currentStreak} days`, icon: "Flame", iconBg: "bg-orange-50", iconColor: "text-orange-600" },
       { label: "Avg. Hours/Day", value: `${avgHoursPerDay}h`, icon: "Clock", iconBg: "bg-blue-50", iconColor: "text-blue-600" },
       { label: "Sessions Completed", value: String(sessionsCompleted), icon: "Target", iconBg: "bg-green-50", iconColor: "text-green-600" },
-      { label: "Goals Achieved", value: `${completedGoals}/${goalRows.length || stats.totalGoals}`, icon: "Award", iconBg: "bg-purple-50", iconColor: "text-purple-600" },
+      { label: "Goals Achieved", value: `${completedGoals}/${courseProgress.length || stats.totalGoals}`, icon: "Award", iconBg: "bg-purple-50", iconColor: "text-purple-600" },
     ],
     weeklyStudy,
     dailyConsistency,

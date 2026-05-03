@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { generateOpenRouterText } from "@/lib/openrouter";
+import { generateAiText } from "@/lib/ai-provider";
 import { getSessionUserId } from "@/lib/session";
 
 interface ChatMessage {
@@ -8,8 +8,8 @@ interface ChatMessage {
   content: string;
 }
 
-const MAX_TOTAL_CONTEXT_CHARS = 45_000;
-const MAX_MATERIAL_CONTEXT_CHARS = 18_000;
+const MAX_TOTAL_CONTEXT_CHARS = 10_000;
+const MAX_MATERIAL_CONTEXT_CHARS = 4_000;
 
 function isChatMessage(value: unknown): value is ChatMessage {
   if (!value || typeof value !== "object") return false;
@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: "Goal id is required" }, { status: 400 });
   }
 
-  const messages = (body.messages ?? []).filter(isChatMessage).slice(-8);
+  const messages = (body.messages ?? []).filter(isChatMessage).slice(-4);
   const latestQuestion = [...messages].reverse().find((message) => message.role === "user")?.content.trim();
   if (!latestQuestion) {
     return NextResponse.json({ message: "Ask a question first." }, { status: 400 });
@@ -140,7 +140,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const answer = await generateOpenRouterText({
+    const answer = await generateAiText({
       systemInstruction: `You are a study assistant helping a student with one subject.
 
 Subject: ${goal.title}

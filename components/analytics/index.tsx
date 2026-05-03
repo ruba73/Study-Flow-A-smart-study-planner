@@ -262,8 +262,8 @@ export default function AnalyticsPageView() {
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie data={sessionType} dataKey="value" nameKey="name" outerRadius={110} paddingAngle={2}>
-                      {sessionType.map((item) => (
-                        <Cell key={item.name} fill={item.color} />
+                      {sessionType.map((item, index) => (
+                        <Cell key={`${item.name}-${index}`} fill={item.color} />
                       ))}
                     </Pie>
                     <Tooltip {...tooltipStyle()} />
@@ -272,8 +272,8 @@ export default function AnalyticsPageView() {
               </div>
 
               <div className="mx-auto mt-2 grid w-full max-w-md grid-cols-3 gap-8">
-                {sessionType.map((item) => (
-                  <div key={item.name} className="text-center">
+                {sessionType.map((item, index) => (
+                  <div key={`${item.name}-${index}`} className="text-center">
                     <div className="mb-1 flex items-center justify-center gap-2">
                       <div className="h-3 w-3 rounded-full" style={{ backgroundColor: item.color }} />
                       <p className="text-xs text-gray-600">{item.name}</p>
@@ -292,8 +292,8 @@ export default function AnalyticsPageView() {
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie data={timeByCourse} dataKey="value" nameKey="name" innerRadius={70} outerRadius={110} paddingAngle={2}>
-                      {timeByCourse.map((item) => (
-                        <Cell key={item.name} fill={item.color} />
+                      {timeByCourse.map((item, index) => (
+                        <Cell key={`${item.name}-${index}`} fill={item.color} />
                       ))}
                     </Pie>
                     <Tooltip {...tooltipStyle()} />
@@ -308,8 +308,8 @@ export default function AnalyticsPageView() {
           <CardHeader title="Course Progress Overview" />
           <CardContent>
             <div className="space-y-5">
-              {courseProgress.map((item) => (
-                <div key={item.name}>
+              {courseProgress.map((item, index) => (
+                <div key={`${item.name}-${index}`}>
                   <div className="mb-2 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <span className={`h-2.5 w-2.5 rounded-full ${item.color}`} />

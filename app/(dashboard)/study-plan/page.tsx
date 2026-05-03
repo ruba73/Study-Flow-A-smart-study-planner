@@ -251,10 +251,20 @@ export default function StudyPlanPage() {
         return;
       }
       setSessions(data.sessions ?? []);
+      const examWarnings = [
+        ...(Array.isArray(data.examWarnings) ? data.examWarnings : []),
+        ...(typeof data.examWarning === 'string' && data.examWarning ? [data.examWarning] : []),
+      ];
       if (data.tasksCreated) {
         setAiTaskNotice({
-          title: 'Material-based sessions created',
-          message: `${data.tasksCreated} session${data.tasksCreated === 1 ? '' : 's'} created with study details from your materials.`,
+          title: 'AI-generated sessions created',
+          message: `${data.tasksCreated} session${data.tasksCreated === 1 ? '' : 's'} created and the final AI exam was added as the last task.`,
+          tone: 'success',
+        });
+      } else if (examWarnings.length) {
+        setAiTaskNotice({
+          title: 'Plan created',
+          message: 'The final AI exam may still be preparing; check Tasks in a moment.',
           tone: 'success',
         });
       }
@@ -414,7 +424,7 @@ export default function StudyPlanPage() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="application/pdf,text/plain,text/markdown,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.txt,.md,.doc,.docx"
+                  accept="application/pdf,text/plain,text/markdown,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,.pdf,.txt,.md,.doc,.docx,.pptx"
                   multiple
                   onChange={(event) => addSelectedFiles(event.target.files)}
                   className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 file:mr-4 file:rounded-md file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-blue-700"
