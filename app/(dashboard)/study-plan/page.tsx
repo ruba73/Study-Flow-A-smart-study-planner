@@ -319,18 +319,31 @@ export default function StudyPlanPage() {
         method: 'POST',
         body: formData,
       });
-      const data = await response.json();
+
+      let data: { message?: string; failedFiles?: unknown[] } | null = null;
+
+      const contentType = response.headers.get('content-type') ?? '';
+      try {
+        if (contentType.includes('application/json')) {
+          data = await response.json();
+        }
+      } catch {
+        data = null;
+      }
+
       if (!response.ok) {
-        alert(data.message || 'Could not upload material.');
+        alert(data?.message || `Could not upload material (HTTP ${response.status}).`);
         return;
       }
+
+
 
       setSelectedFiles([]);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
       await loadMaterials(selectedGoalId);
-      if (data.failedFiles?.length) {
+      if (data?.failedFiles?.length) {
         alert('Some files were saved locally. AI Generate can still create tasks from their names.');
       }
     } finally {

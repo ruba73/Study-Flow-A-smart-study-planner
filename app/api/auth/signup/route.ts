@@ -69,13 +69,15 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    const safeUser = { ...user };
-    delete safeUser.password;
+    // Don’t return password hash
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { password: _password, ...safeUser } = user as typeof user & { password?: string };
 
     return NextResponse.json(
       { message: "User created successfully", user: safeUser },
       { status: 201 }
     );
+
   } catch (error) {
     console.error("Signup error:", error);
     return NextResponse.json(

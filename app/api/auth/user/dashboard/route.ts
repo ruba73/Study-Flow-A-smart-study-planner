@@ -43,14 +43,13 @@ export async function GET() {
       },
       todayTasksCount: 0,
     });
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Dashboard API error:', error);
     return NextResponse.json(
-      { 
-        error: 'Failed to fetch dashboard data',
-        details: error.message 
-      },
+      { error: 'Failed to fetch dashboard data', details: message },
       { status: 500 }
     );
   }
+
 }
